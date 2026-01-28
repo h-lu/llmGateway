@@ -4,6 +4,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 
 from gateway.app.api.chat import router as chat_router
+from gateway.app.api.metrics import router as metrics_router
 from gateway.app.core.http_client import init_http_client
 from gateway.app.core.logging import setup_logging
 from gateway.app.db.async_session import close_async_engine, init_async_db
@@ -62,6 +63,7 @@ def create_app() -> FastAPI:
     
     # Include routers
     app.include_router(chat_router)
+    app.include_router(metrics_router, prefix="")
     
     @app.get("/health")
     def health():

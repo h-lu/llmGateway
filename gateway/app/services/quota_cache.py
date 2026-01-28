@@ -163,13 +163,13 @@ class QuotaCacheService:
         tokens_needed: int,
         week_number: Optional[int] = None,
     ) -> tuple[bool, int, int]:
-        """Check and reserve quota using cache with optimistic locking.
+        """Check and reserve quota using cache for fast checks, DB for persistence.
         
-        First checks cache for quota state. If cache hit and sufficient quota,
-        updates cache optimistically. On version conflict, falls back to DB.
+        First checks cache for quota state for fast rejection of over-quota requests.
+        If cache shows insufficient quota, returns failure immediately.
         
-        If cache miss or insufficient quota in cache, falls back to database
-        using atomic check_and_consume_quota.
+        Always uses database atomic check_and_consume_quota for actual reservation
+        to ensure consistency. Updates cache with result after DB operation.
         
         Args:
             student_id: The student ID
@@ -187,22 +187,15 @@ class QuotaCacheService:
         if week_number is None:
             week_number = get_current_week_number()
         
-        # Try cache first
+        # Try cache first for fast rejection
         cached_state = await self.get_quota_state(student_id, week_number)
         
         if cached_state is not None:
-            # Check if sufficient quota in cache
-            if cached_state.remaining >= tokens_needed:
-                # Try optimistic update
-                success, remaining, used = await self._optimistic_update(
-                    cached_state, tokens_needed, week_number
-                )
-                if success:
-                    return True, remaining, used
-                # Version conflict, fall through to DB
-            # Insufficient quota in cache or version conflict, fall through to DB
+            # Fast path: if cache shows insufficient quota, reject immediately
+            if cached_state.remaining < tokens_needed:
+                return False, cached_state.remaining, cached_state.used_quota
         
-        # Cache miss, insufficient quota, or version conflict - use DB
+        # Always use DB atomic operation for actual reservation
         success, remaining, used = await check_and_consume_quota(
             student_id, tokens_needed
         )
@@ -217,70 +210,18 @@ class QuotaCacheService:
                 version=1,
             )
             await self.set_quota_state(new_state)
+        elif cached_state is not None and remaining <= 0:
+            # DB says no quota left, update cache to reflect this
+            new_state = QuotaCacheState(
+                student_id=student_id,
+                week_number=week_number,
+                current_week_quota=current_week_quota,
+                used_quota=used,
+                version=1,
+            )
+            await self.set_quota_state(new_state)
         
         return success, remaining, used
-    
-    async def _optimistic_update(
-        self,
-        state: QuotaCacheState,
-        tokens_needed: int,
-        week_number: Optional[int] = None,
-    ) -> tuple[bool, int, int]:
-        """Attempt optimistic update of cached quota state.
-        
-        Args:
-            state: Current cached state
-            tokens_needed: Tokens to reserve
-            week_number: The week number. If None, uses current week.
-            
-        Returns:
-            Tuple of (success, remaining_quota, current_used)
-        """
-        cache = self._get_cache()
-        key = self._make_key(state.student_id, week_number)
-        
-        # Get current cached value to check version
-        current_data = await cache.get(key)
-        if current_data is None:
-            # Cache entry expired/removed during operation
-            return False, 0, 0
-        
-        try:
-            current_dict = json.loads(current_data.decode("utf-8"))
-            current_state = QuotaCacheState.from_dict(current_dict)
-        except (json.JSONDecodeError, KeyError, UnicodeDecodeError):
-            # Invalid cache data
-            return False, 0, 0
-        
-        # Check version for optimistic locking
-        if current_state.version != state.version:
-            # Version conflict - another process updated the cache
-            return False, 0, 0
-        
-        # Check week number (handle week rollover)
-        effective_week = week_number if week_number is not None else get_current_week_number()
-        if current_state.week_number != 0 and current_state.week_number != effective_week:
-            # Week changed, treat as cache miss
-            return False, 0, 0
-        
-        # Check again if sufficient quota (might have changed)
-        if current_state.remaining < tokens_needed:
-            return False, current_state.remaining, current_state.used_quota
-        
-        # Update state
-        new_state = QuotaCacheState(
-            student_id=state.student_id,
-            week_number=effective_week,
-            current_week_quota=current_state.current_week_quota,
-            used_quota=current_state.used_quota + tokens_needed,
-            version=state.version + 1,
-        )
-        
-        # Store updated state
-        data = json.dumps(new_state.to_dict()).encode("utf-8")
-        await cache.set(key, data, ttl=self.CACHE_TTL_SECONDS)
-        
-        return True, new_state.remaining, new_state.used_quota
 
 
 # Global service instance

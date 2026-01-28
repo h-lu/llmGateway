@@ -1,21 +1,26 @@
-import re
-from dataclasses import dataclass
+"""Rules engine for evaluating prompts.
 
+This module provides backward compatibility by re-exporting from rule_service.
+New code should import from gateway.app.services.rule_service directly.
 
-BLOCK_PATTERNS = [
-    r"写一个.+程序",
-    r"帮我实现.+",
-    r"生成.+代码",
-    r"给我.+的代码",
-    r"这道题的答案是什么",
-    r"帮我做.+作业",
-]
+Note: The hardcoded patterns below are deprecated in favor of database rules
+but are kept as fallback when database is unavailable.
+"""
 
-GUIDE_PATTERNS = [
-    (r"怎么.{2,5}$", "你的问题比较简短，能否补充更多背景？"),
-    (r"解释.+", "在我解释之后，请尝试用自己的话复述一遍"),
-]
+# Re-export from new rule_service module for backward compatibility
+from gateway.app.services.rule_service import (
+    BLOCK_PATTERNS,
+    GUIDE_PATTERNS,
+    RuleResult,
+    RuleService,
+    evaluate_prompt,
+    get_rule_service,
+    is_week_in_range,
+    parse_week_range,
+    reload_rules,
+)
 
+# Backward compatibility: maintain old hardcoded patterns
 BLOCK_MESSAGE = (
     "检测到你在直接要求代码。根据课程要求，请先尝试：\n"
     "1. 描述你想解决什么问题\n"
@@ -25,19 +30,16 @@ BLOCK_MESSAGE = (
 )
 
 
-@dataclass
-class RuleResult:
-    action: str  # blocked | guided | passed
-    message: str | None = None
-    rule_id: str | None = None
-
-
-def evaluate_prompt(prompt: str, week_number: int) -> RuleResult:
-    if week_number <= 2:
-        for pattern in BLOCK_PATTERNS:
-            if re.search(pattern, prompt):
-                return RuleResult(action="blocked", message=BLOCK_MESSAGE, rule_id=pattern)
-    for pattern, guide in GUIDE_PATTERNS:
-        if re.search(pattern, prompt):
-            return RuleResult(action="guided", message=guide, rule_id=pattern)
-    return RuleResult(action="passed")
+__all__ = [
+    "RuleResult",
+    "RuleService",
+    "evaluate_prompt",
+    "get_rule_service",
+    "reload_rules",
+    "parse_week_range",
+    "is_week_in_range",
+    # Backward compatibility exports
+    "BLOCK_PATTERNS",
+    "GUIDE_PATTERNS",
+    "BLOCK_MESSAGE",
+]

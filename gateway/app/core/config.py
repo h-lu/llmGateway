@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     
     # Logging settings
     log_level: str = "INFO"
+    log_format: str = "text"  # text | structured | json
     
     # Cache settings
     cache_enabled: bool = True
