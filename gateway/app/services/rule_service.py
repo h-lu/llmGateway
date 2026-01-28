@@ -1,16 +1,18 @@
 """Rule engine with database loading and caching support.
 
 This module provides a RuleService that loads rules from the database
-with LRU caching, falling back to hardcoded rules if the database
+with caching via CacheBackend, falling back to hardcoded rules if the database
 is unavailable.
 """
 
 import asyncio
+import json
 import re
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from gateway.app.core.cache import get_cache
 from gateway.app.core.logging import get_logger
 from gateway.app.db.crud import get_all_rules as get_all_rules_async
 from gateway.app.db.models import Rule
@@ -90,7 +92,7 @@ class RuleService:
     """Service for loading and evaluating rules from database with caching.
     
     The service implements a two-tier caching strategy:
-    1. In-memory cache with TTL (5 minutes)
+    1. Cache via CacheBackend with TTL (5 minutes)
     2. Fallback to hardcoded rules if database is unavailable
     
     Provides both sync and async interfaces for backward compatibility.
@@ -100,20 +102,47 @@ class RuleService:
         result = service.evaluate_prompt("帮我写代码", week_number=1)
     """
     
-    # Cache TTL in seconds (5 minutes)
-    CACHE_TTL = 300
+    # Cache settings
+    CACHE_TTL = 300  # 5 minutes in seconds
+    CACHE_KEY = "rules:all"
     
     def __init__(self):
-        self._cache: Optional[List[Rule]] = None
-        self._cache_timestamp: float = 0
         self._use_hardcoded: bool = False
         self._compiled_patterns: Dict[int, re.Pattern] = {}
+        self._cached_rules: Optional[List[Rule]] = None  # In-memory cache for sync access in async context
     
-    def _is_cache_valid(self) -> bool:
-        """Check if the current cache is still valid."""
-        if self._cache is None:
-            return False
-        return (time.time() - self._cache_timestamp) < self.CACHE_TTL
+    def _rule_to_dict(self, rule: Rule) -> Dict[str, Any]:
+        """Convert a Rule object to a dictionary for JSON serialization."""
+        return {
+            "id": rule.id,
+            "pattern": rule.pattern,
+            "rule_type": rule.rule_type,
+            "message": rule.message,
+            "active_weeks": rule.active_weeks,
+            "enabled": rule.enabled,
+        }
+    
+    def _dict_to_rule(self, data: Dict[str, Any]) -> Rule:
+        """Convert a dictionary back to a Rule object."""
+        rule = Rule(
+            id=data["id"],
+            pattern=data["pattern"],
+            rule_type=data["rule_type"],
+            message=data["message"],
+            active_weeks=data["active_weeks"],
+            enabled=data.get("enabled", True),
+        )
+        return rule
+    
+    def _serialize_rules(self, rules: List[Rule]) -> bytes:
+        """Serialize a list of Rule objects to JSON bytes."""
+        rules_data = [self._rule_to_dict(rule) for rule in rules]
+        return json.dumps(rules_data).encode("utf-8")
+    
+    def _deserialize_rules(self, data: bytes) -> List[Rule]:
+        """Deserialize JSON bytes to a list of Rule objects."""
+        rules_data = json.loads(data.decode("utf-8"))
+        return [self._dict_to_rule(rule_data) for rule_data in rules_data]
     
     async def _load_rules_from_db_async(self) -> List[Rule]:
         """Load enabled rules from database asynchronously.
@@ -144,12 +173,47 @@ class RuleService:
             rules: List of Rule objects to compile patterns for
         """
         self._compiled_patterns.clear()
+        self._cached_rules = rules  # Store rules for sync access in async context
         for rule in rules:
             try:
                 self._compiled_patterns[rule.id] = re.compile(rule.pattern)
             except re.error as e:
                 logger.error(f"Failed to compile regex pattern for rule {rule.id}: {e}")
                 # Skip invalid patterns - they won't match anything
+    
+    async def _get_cached_rules(self) -> Optional[List[Rule]]:
+        """Get rules from cache if available.
+        
+        Returns:
+            List of Rule objects if cache hit, None if cache miss.
+        """
+        cache = get_cache()
+        cached_data = await cache.get(self.CACHE_KEY)
+        if cached_data is not None:
+            try:
+                return self._deserialize_rules(cached_data)
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.warning(f"Failed to deserialize cached rules: {e}")
+                return None
+        return None
+    
+    async def _set_cached_rules(self, rules: List[Rule]) -> None:
+        """Store rules in cache.
+        
+        Args:
+            rules: List of Rule objects to cache.
+        """
+        cache = get_cache()
+        try:
+            serialized = self._serialize_rules(rules)
+            await cache.set(self.CACHE_KEY, serialized, ttl=self.CACHE_TTL)
+        except Exception as e:
+            logger.warning(f"Failed to cache rules: {e}")
+    
+    async def _invalidate_cache(self) -> None:
+        """Remove rules from cache."""
+        cache = get_cache()
+        await cache.delete(self.CACHE_KEY)
     
     def reload_rules(self) -> None:
         """Force reload rules from database (sync version).
@@ -158,29 +222,39 @@ class RuleService:
         changes take effect immediately.
         """
         try:
-            self._cache = self._load_rules_from_db_sync()
-            self._cache_timestamp = time.time()
+            rules = self._load_rules_from_db_sync()
             self._use_hardcoded = False
-            self._compile_patterns(self._cache or [])
+            self._compile_patterns(rules or [])
+            # Invalidate and update cache
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Fire and forget cache update in async context
+                    asyncio.create_task(self._invalidate_and_set_cache(rules or []))
+                else:
+                    loop.run_until_complete(self._invalidate_and_set_cache(rules or []))
+            except RuntimeError:
+                pass  # Can't cache, but rules are loaded
             logger.info("Rules reloaded successfully")
         except Exception as e:
             logger.error(f"Failed to reload rules from DB: {e}")
-            if self._cache is None:
-                self._use_hardcoded = True
             raise
+    
+    async def _invalidate_and_set_cache(self, rules: List[Rule]) -> None:
+        """Invalidate cache and set new rules atomically."""
+        await self._invalidate_cache()
+        await self._set_cached_rules(rules)
     
     async def reload_rules_async(self) -> None:
         """Force reload rules from database (async version)."""
         try:
-            self._cache = await self._load_rules_from_db_async()
-            self._cache_timestamp = time.time()
+            rules = await self._load_rules_from_db_async()
             self._use_hardcoded = False
-            self._compile_patterns(self._cache or [])
+            self._compile_patterns(rules or [])
+            await self._invalidate_and_set_cache(rules or [])
             logger.info("Rules reloaded successfully")
         except Exception as e:
             logger.error(f"Failed to reload rules from DB: {e}")
-            if self._cache is None:
-                self._use_hardcoded = True
             raise
     
     # Backward compatibility alias
@@ -189,22 +263,40 @@ class RuleService:
     def get_rules(self) -> List[Rule]:
         """Get current rules (from cache or database) - sync version.
         
+        Note: This method attempts to get rules from cache first.
+        If cache miss, loads from database and updates cache.
+        
         Returns:
             List of Rule objects
         """
-        if self._is_cache_valid():
-            return self._cache or []
-        
         # If explicitly set to use hardcoded, skip DB load
         if self._use_hardcoded:
             return []
         
+        # If we have in-memory cached rules, use them (for sync access in async context)
+        if self._cached_rules is not None:
+            return self._cached_rules
+        
         try:
-            self._cache = self._load_rules_from_db_sync()
-            self._cache_timestamp = time.time()
+            # Try to get from shared cache first
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Can't run async code in running loop from sync context
+                # Return empty - rules should be loaded via async methods
+                return []
+            
+            cached_rules = loop.run_until_complete(self._get_cached_rules())
+            if cached_rules is not None:
+                self._compile_patterns(cached_rules)
+                return cached_rules
+            
+            # Cache miss, load from DB
+            rules = self._load_rules_from_db_sync()
             self._use_hardcoded = False
-            self._compile_patterns(self._cache or [])
-            return self._cache or []
+            self._compile_patterns(rules or [])
+            # Update cache
+            loop.run_until_complete(self._set_cached_rules(rules or []))
+            return rules or []
         except Exception as e:
             logger.error(f"Failed to load rules from DB: {e}")
             # Fallback to empty list if DB fails and no cache
@@ -216,19 +308,24 @@ class RuleService:
         Returns:
             List of Rule objects
         """
-        if self._is_cache_valid():
-            return self._cache or []
-        
         # If explicitly set to use hardcoded, skip DB load
         if self._use_hardcoded:
             return []
         
         try:
-            self._cache = await self._load_rules_from_db_async()
-            self._cache_timestamp = time.time()
+            # Try to get from cache first
+            cached_rules = await self._get_cached_rules()
+            if cached_rules is not None:
+                self._compile_patterns(cached_rules)
+                return cached_rules
+            
+            # Cache miss, load from DB
+            rules = await self._load_rules_from_db_async()
             self._use_hardcoded = False
-            self._compile_patterns(self._cache or [])
-            return self._cache or []
+            self._compile_patterns(rules or [])
+            # Update cache
+            await self._set_cached_rules(rules or [])
+            return rules or []
         except Exception as e:
             logger.error(f"Failed to load rules from DB: {e}")
             # Fallback to empty list if DB fails and no cache
