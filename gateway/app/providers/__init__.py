@@ -16,8 +16,11 @@ from gateway.app.providers.factory import (
     ProviderFactory,
     ProviderType,
     create_provider,
+    get_health_checker,
+    get_load_balancer,
     get_primary_provider,
     get_provider_factory,
+    reset_load_balancer,
     reset_provider_factory,
 )
 from gateway.app.providers.health import ProviderHealthChecker
@@ -36,8 +39,11 @@ __all__ = [
     "ProviderFactory",
     "ProviderType",
     "create_provider",
+    "get_health_checker",
+    "get_load_balancer",
     "get_primary_provider",
     "get_provider_factory",
+    "reset_load_balancer",
     "reset_provider_factory",
     # Health
     "ProviderHealthChecker",

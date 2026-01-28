@@ -18,13 +18,31 @@ from gateway.app.exceptions import QuotaExceededError
 from gateway.app.middleware.auth import require_api_key
 from gateway.app.middleware.request_id import get_request_id
 from gateway.app.providers.base import BaseProvider
-from gateway.app.providers.factory import get_provider_factory
+from gateway.app.providers.factory import get_load_balancer
+from gateway.app.providers.loadbalancer import LoadBalancer
 from gateway.app.services.rules import evaluate_prompt
 from gateway.app.services.async_logger import (
     AsyncConversationLogger,
     ConversationLogData,
     get_async_logger,
 )
+
+# Maximum failover attempts for provider failures
+MAX_FAILOVER_ATTEMPTS = 3
+
+
+def get_load_balancer_dependency() -> LoadBalancer:
+    """Get the load balancer instance as a FastAPI dependency.
+    
+    Returns:
+        LoadBalancer instance with all configured providers
+    """
+    try:
+        http_client = get_http_client()
+        return get_load_balancer(http_client)
+    except RuntimeError:
+        # HTTP client not initialized, let get_load_balancer handle it
+        return get_load_balancer(None)
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -347,6 +365,7 @@ async def chat_completions(
     background_tasks: BackgroundTasks,
     student: Student = Depends(require_api_key),
     async_logger: AsyncConversationLogger = Depends(get_async_logger),
+    load_balancer: LoadBalancer = Depends(get_load_balancer_dependency),
 ):
     """Handle chat completion requests.
     
@@ -445,31 +464,80 @@ async def chat_completions(
             }
         )
     
-    # Initialize provider
-    try:
-        http_client = get_http_client()
-        factory = get_provider_factory(http_client)
-        provider = factory.create_primary_provider()
-    except RuntimeError as e:
-        logger.error(f"Provider initialization failed: {e}", extra={"request_id": request_id})
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "service_unavailable",
-                "message": "AI provider not configured"
-            }
-        )
+    # Initialize provider with load balancer and failover support
+    last_error = None
     
-    # Handle streaming vs non-streaming
-    if stream:
-        return await handle_streaming_response(
-            provider, payload, student, prompt, result,
-            week_number, max_tokens, request_id, model,
-            background_tasks, async_logger
-        )
-    else:
-        return await handle_non_streaming_response(
-            provider, payload, student, prompt, result,
-            week_number, max_tokens, request_id, model,
-            background_tasks, async_logger
-        )
+    for attempt in range(MAX_FAILOVER_ATTEMPTS):
+        try:
+            provider = load_balancer.get_provider()
+            provider_name = getattr(provider, '__class__', None)
+            if provider_name:
+                provider_name = provider_name.__name__
+            else:
+                provider_name = "unknown"
+            
+            logger.info(
+                f"Provider selected",
+                extra={
+                    "request_id": request_id,
+                    "provider": provider_name,
+                    "attempt": attempt + 1,
+                    "strategy": load_balancer.strategy.value
+                }
+            )
+            
+            # Handle streaming vs non-streaming
+            if stream:
+                return await handle_streaming_response(
+                    provider, payload, student, prompt, result,
+                    week_number, max_tokens, request_id, model,
+                    background_tasks, async_logger
+                )
+            else:
+                return await handle_non_streaming_response(
+                    provider, payload, student, prompt, result,
+                    week_number, max_tokens, request_id, model,
+                    background_tasks, async_logger
+                )
+                
+        except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:
+            last_error = e
+            logger.warning(
+                f"Provider failed on attempt {attempt + 1}, trying failover",
+                extra={
+                    "request_id": request_id,
+                    "attempt": attempt + 1,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                }
+            )
+            # Mark provider as unhealthy (it will be skipped in next iteration)
+            # Continue to next iteration for failover
+            continue
+        except RuntimeError as e:
+            # No providers available
+            logger.error(f"No providers available: {e}", extra={"request_id": request_id})
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "service_unavailable",
+                    "message": "AI provider not configured or all providers unhealthy"
+                }
+            )
+    
+    # All failover attempts exhausted
+    logger.error(
+        f"All providers failed after {MAX_FAILOVER_ATTEMPTS} attempts",
+        extra={
+            "request_id": request_id,
+            "last_error": str(last_error),
+            "error_type": type(last_error).__name__ if last_error else None
+        }
+    )
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": "service_unavailable",
+            "message": "All AI providers are unavailable. Please try again later."
+        }
+    )
