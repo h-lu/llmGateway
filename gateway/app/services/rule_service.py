@@ -294,6 +294,7 @@ class RuleService:
         Returns:
             RuleResult with action (blocked | guided | passed)
         """
+        start_time = time.perf_counter()
         rules = await self.get_rules_async()
         
         # If no DB rules, use hardcoded fallback
@@ -308,6 +309,8 @@ class RuleService:
             if not is_week_in_range(week_number, rule.active_weeks):
                 continue
             if rule.id in self._compiled_patterns and self._compiled_patterns[rule.id].search(prompt):
+                elapsed = time.perf_counter() - start_time
+                logger.debug(f"Rule evaluation took {elapsed:.4f}s (action=blocked, rule_id={rule.id})")
                 return RuleResult(
                     action="blocked",
                     message=rule.message,
@@ -321,12 +324,16 @@ class RuleService:
             if not is_week_in_range(week_number, rule.active_weeks):
                 continue
             if rule.id in self._compiled_patterns and self._compiled_patterns[rule.id].search(prompt):
+                elapsed = time.perf_counter() - start_time
+                logger.debug(f"Rule evaluation took {elapsed:.4f}s (action=guided, rule_id={rule.id})")
                 return RuleResult(
                     action="guided",
                     message=rule.message,
                     rule_id=str(rule.id)
                 )
         
+        elapsed = time.perf_counter() - start_time
+        logger.debug(f"Rule evaluation took {elapsed:.4f}s (action=passed)")
         return RuleResult(action="passed")
     
     def _evaluate_hardcoded(self, prompt: str, week_number: int) -> RuleResult:
