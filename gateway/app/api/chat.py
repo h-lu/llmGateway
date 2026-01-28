@@ -1,7 +1,7 @@
 """Chat API endpoints for the gateway."""
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -17,7 +17,7 @@ from gateway.app.services.quota_cache import get_quota_cache_service
 from gateway.app.db.models import Student
 from gateway.app.exceptions import QuotaExceededError
 from gateway.app.middleware.auth import require_api_key
-from gateway.app.middleware.request_id import get_request_id
+from gateway.app.middleware.request_id import get_request_id, get_traceparent
 from gateway.app.providers.base import BaseProvider
 from gateway.app.providers.factory import get_load_balancer
 from gateway.app.providers.loadbalancer import LoadBalancer
@@ -156,6 +156,7 @@ async def handle_streaming_response(
     model: str,
     background_tasks: BackgroundTasks,
     async_logger: AsyncConversationLogger,
+    traceparent: Optional[str] = None,
 ) -> StreamingResponse:
     """Handle streaming chat completion response.
     
@@ -183,7 +184,7 @@ async def handle_streaming_response(
         completion_tokens = 0
         
         try:
-            async for line in provider.stream_chat(payload):
+            async for line in provider.stream_chat(payload, traceparent=traceparent):
                 yield line + "\n\n"
                 
                 # Parse and count tokens
@@ -268,6 +269,7 @@ async def handle_non_streaming_response(
     model: str,
     background_tasks: BackgroundTasks,
     async_logger: AsyncConversationLogger,
+    traceparent: Optional[str] = None,
 ) -> JSONResponse:
     """Handle non-streaming chat completion response.
     
@@ -288,7 +290,7 @@ async def handle_non_streaming_response(
         JSONResponse with completion
     """
     try:
-        upstream_response = await provider.chat_completion(payload)
+        upstream_response = await provider.chat_completion(payload, traceparent=traceparent)
         
     except httpx.HTTPStatusError as e:
         logger.error(
@@ -494,18 +496,21 @@ async def chat_completions(
                 }
             )
             
+                    # Get traceparent for distributed tracing
+            traceparent = get_traceparent(request)
+            
             # Handle streaming vs non-streaming
             if stream:
                 return await handle_streaming_response(
                     provider, payload, student, prompt, result,
                     week_number, max_tokens, request_id, model,
-                    background_tasks, async_logger
+                    background_tasks, async_logger, traceparent
                 )
             else:
                 return await handle_non_streaming_response(
                     provider, payload, student, prompt, result,
                     week_number, max_tokens, request_id, model,
-                    background_tasks, async_logger
+                    background_tasks, async_logger, traceparent
                 )
                 
         except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:

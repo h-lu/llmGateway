@@ -95,6 +95,23 @@ class BaseProvider(ABC):
         """
         return f"{self.base_url}{endpoint}"
     
+    def _get_request_headers(
+        self, 
+        traceparent: Optional[str] = None
+    ) -> Dict[str, str]:
+        """Get request headers with optional trace context.
+        
+        Args:
+            traceparent: Optional W3C traceparent header value
+            
+        Returns:
+            Dictionary of HTTP headers including trace context if provided
+        """
+        headers = self.headers.copy()
+        if traceparent:
+            headers["traceparent"] = traceparent
+        return headers
+    
     @staticmethod
     def with_retry(policy: Optional[RetryPolicy] = None) -> Callable[[F], F]:
         """Get retry decorator with optional custom policy.
@@ -117,11 +134,16 @@ class BaseProvider(ABC):
         return with_retry(policy)
     
     @abstractmethod
-    async def chat_completion(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def chat_completion(
+        self, 
+        payload: Dict[str, Any],
+        traceparent: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Send a non-streaming chat completion request.
         
         Args:
             payload: The request payload containing model, messages, etc.
+            traceparent: Optional W3C traceparent header for distributed tracing
             
         Returns:
             The JSON response from the API
@@ -129,11 +151,16 @@ class BaseProvider(ABC):
         pass
     
     @abstractmethod
-    async def stream_chat(self, payload: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def stream_chat(
+        self, 
+        payload: Dict[str, Any],
+        traceparent: Optional[str] = None
+    ) -> AsyncGenerator[str, None]:
         """Send a streaming chat completion request, yielding chunks.
         
         Args:
             payload: The request payload containing model, messages, etc.
+            traceparent: Optional W3C traceparent header for distributed tracing
             
         Yields:
             Lines from the SSE stream

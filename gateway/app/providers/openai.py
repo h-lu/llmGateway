@@ -47,11 +47,16 @@ class OpenAIProvider(BaseProvider):
         if organization:
             self.headers["OpenAI-Organization"] = organization
     
-    async def chat_completion(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def chat_completion(
+        self, 
+        payload: Dict[str, Any],
+        traceparent: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Send a non-streaming chat completion request.
         
         Args:
             payload: The request payload (model, messages, temperature, etc.)
+            traceparent: Optional W3C traceparent header for distributed tracing
             
         Returns:
             The JSON response from the API
@@ -60,16 +65,23 @@ class OpenAIProvider(BaseProvider):
             httpx.HTTPStatusError: If the API returns an error
         """
         url = self._get_endpoint_url("/chat/completions")
+        headers = self._get_request_headers(traceparent)
+        
         async with self._client_context() as client:
-            resp = await client.post(url, headers=self.headers, json=payload)
+            resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             return resp.json()
     
-    async def stream_chat(self, payload: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def stream_chat(
+        self, 
+        payload: Dict[str, Any],
+        traceparent: Optional[str] = None
+    ) -> AsyncGenerator[str, None]:
         """Send a streaming chat completion request, yielding chunks.
         
         Args:
             payload: The request payload (model, messages, temperature, etc.)
+            traceparent: Optional W3C traceparent header for distributed tracing
             
         Yields:
             Lines from the SSE stream
@@ -79,13 +91,14 @@ class OpenAIProvider(BaseProvider):
         """
         url = self._get_endpoint_url("/chat/completions")
         payload["stream"] = True
+        headers = self._get_request_headers(traceparent)
         
         # For streaming, we need to handle client lifecycle carefully
         client = self._get_client()
         is_shared = self._http_client is not None
         
         try:
-            async with client.stream("POST", url, headers=self.headers, json=payload) as resp:
+            async with client.stream("POST", url, headers=headers, json=payload) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     yield line
