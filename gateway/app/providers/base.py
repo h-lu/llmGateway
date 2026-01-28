@@ -1,7 +1,11 @@
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any, Dict, AsyncGenerator, Optional
+from typing import Any, Callable, Dict, AsyncGenerator, Optional, TypeVar
 import httpx
+
+from gateway.app.providers.retry import RetryPolicy, with_retry
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 class BaseProvider(ABC):
@@ -90,6 +94,27 @@ class BaseProvider(ABC):
             Full URL
         """
         return f"{self.base_url}{endpoint}"
+    
+    @staticmethod
+    def with_retry(policy: Optional[RetryPolicy] = None) -> Callable[[F], F]:
+        """Get retry decorator with optional custom policy.
+        
+        This static method provides access to the retry decorator that can be
+        used on provider methods like chat_completion and stream_chat.
+        
+        Args:
+            policy: Optional custom retry policy. Uses default if not provided.
+            
+        Returns:
+            Decorator function that adds retry logic with exponential backoff
+            
+        Example:
+            >>> class MyProvider(BaseProvider):
+            ...     @BaseProvider.with_retry(policy=RetryPolicy(max_retries=3))
+            ...     async def chat_completion(self, payload):
+            ...         return await self._make_request(payload)
+        """
+        return with_retry(policy)
     
     @abstractmethod
     async def chat_completion(self, payload: Dict[str, Any]) -> Dict[str, Any]:

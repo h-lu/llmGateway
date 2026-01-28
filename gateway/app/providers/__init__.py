@@ -6,6 +6,7 @@ This package provides:
 - Provider factory for creating instances (ProviderFactory, ProviderType)
 - Health checking (ProviderHealthChecker)
 - Load balancing (LoadBalancer, LoadBalanceStrategy)
+- Retry mechanism (RetryPolicy, with_retry)
 """
 
 from gateway.app.providers.base import BaseProvider
@@ -22,6 +23,7 @@ from gateway.app.providers.factory import (
 from gateway.app.providers.health import ProviderHealthChecker
 from gateway.app.providers.loadbalancer import LoadBalancer, LoadBalanceStrategy
 from gateway.app.providers.openai import OpenAIProvider
+from gateway.app.providers.retry import RetryPolicy, with_retry
 
 __all__ = [
     # Base
@@ -42,4 +44,7 @@ __all__ = [
     # Load Balancer
     "LoadBalancer",
     "LoadBalanceStrategy",
+    # Retry
+    "RetryPolicy",
+    "with_retry",
 ]
