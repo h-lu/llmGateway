@@ -12,7 +12,6 @@ from gateway.app.core.http_client import get_http_client
 from gateway.app.core.logging import get_logger
 from gateway.app.core.tokenizer import TokenCounter, count_message_tokens
 from gateway.app.core.utils import get_current_week_number
-from gateway.app.db.crud import check_and_consume_quota
 from gateway.app.services.quota_cache import get_quota_cache_service
 from gateway.app.db.models import Student
 from gateway.app.exceptions import QuotaExceededError
@@ -21,7 +20,7 @@ from gateway.app.middleware.request_id import get_request_id, get_traceparent
 from gateway.app.providers.base import BaseProvider
 from gateway.app.providers.factory import get_load_balancer
 from gateway.app.providers.loadbalancer import LoadBalancer
-from gateway.app.services.rules import evaluate_prompt
+from gateway.app.services.rule_service import evaluate_prompt
 from gateway.app.services.async_logger import (
     AsyncConversationLogger,
     ConversationLogData,
@@ -496,7 +495,7 @@ async def chat_completions(
                 }
             )
             
-                    # Get traceparent for distributed tracing
+            # Get traceparent for distributed tracing
             traceparent = get_traceparent(request)
             
             # Handle streaming vs non-streaming
@@ -524,19 +523,36 @@ async def chat_completions(
                     "error_type": type(e).__name__
                 }
             )
-            # Mark provider as unhealthy (it will be skipped in next iteration)
-            # Continue to next iteration for failover
+            # Mark provider as unhealthy for immediate failover
+            try:
+                provider_name = getattr(provider, '__class__', None)
+                if provider_name:
+                    provider_name = provider_name.__name__.lower().replace('provider', '')
+                    load_balancer._health_checker.mark_unhealthy(provider_name)
+            except Exception:
+                pass  # Ignore errors from health check marking
             continue
         except RuntimeError as e:
-            # No providers available
+            # No providers available - distinguish between unconfigured and unhealthy
+            error_msg = str(e)
             logger.error(f"No providers available: {e}", extra={"request_id": request_id})
-            raise HTTPException(
-                status_code=503,
-                detail={
+            
+            if "No providers registered" in error_msg:
+                detail = {
                     "error": "service_unavailable",
-                    "message": "AI provider not configured or all providers unhealthy"
+                    "message": "AI provider not configured. Please check provider settings."
                 }
-            )
+            elif "No healthy providers" in error_msg:
+                detail = {
+                    "error": "service_unavailable",
+                    "message": "All AI providers are currently unhealthy. Please try again later."
+                }
+            else:
+                detail = {
+                    "error": "service_unavailable",
+                    "message": "AI service temporarily unavailable. Please try again later."
+                }
+            raise HTTPException(status_code=503, detail=detail)
     
     # All failover attempts exhausted
     logger.error(

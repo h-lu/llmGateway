@@ -15,7 +15,6 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from gateway.app.core.tracing import (
     TraceContext,
-    get_current_trace_context,
     set_current_trace_context,
 )
 

@@ -52,6 +52,7 @@ def parse_week_range(active_weeks: str) -> Tuple[int, int]:
         
     Returns:
         Tuple of (start_week, end_week). For single number, start=end.
+        Defaults to (1, 99) if parsing fails.
         
     Examples:
         >>> parse_week_range("1-2")
@@ -60,18 +61,25 @@ def parse_week_range(active_weeks: str) -> Tuple[int, int]:
         (3, 6)
         >>> parse_week_range("5")
         (5, 5)
+        >>> parse_week_range("invalid")
+        (1, 99)
     """
     if not active_weeks:
         return (1, 99)  # Default: always active
     
-    parts = active_weeks.split("-")
-    if len(parts) == 1:
-        week = int(parts[0].strip())
-        return (week, week)
-    else:
-        start = int(parts[0].strip())
-        end = int(parts[1].strip())
-        return (start, end)
+    try:
+        parts = active_weeks.split("-")
+        if len(parts) == 1:
+            week = int(parts[0].strip())
+            return (week, week)
+        else:
+            start = int(parts[0].strip())
+            end = int(parts[1].strip())
+            # Ensure start <= end
+            return (min(start, end), max(start, end))
+    except (ValueError, IndexError) as e:
+        logger.warning(f"Invalid week range format '{active_weeks}': {e}. Using default (1, 99).")
+        return (1, 99)
 
 
 def is_week_in_range(week_number: int, week_range: str) -> bool:
