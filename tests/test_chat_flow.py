@@ -28,16 +28,17 @@ async def test_chat_flow_blocked():
     app.dependency_overrides[require_api_key] = override_require_api_key
     
     try:
-        # Mock async database operations
-        with patch("gateway.app.services.async_logger.save_conversation", new_callable=AsyncMock):
-            client = TestClient(app)
-            resp = client.post(
-                "/v1/chat/completions",
-                headers={"Authorization": "Bearer test"},
-                json={"messages": [{"role": "user", "content": "帮我实现一个爬虫程序"}]},
-            )
-            assert resp.status_code == 200
-            assert "直接要求代码" in resp.json()["choices"][0]["message"]["content"]
+        # Mock async database operations for batch logging
+        with patch("gateway.app.db.crud.save_conversation_bulk", new_callable=AsyncMock):
+            with patch("gateway.app.db.crud.update_student_quota_bulk", new_callable=AsyncMock):
+                client = TestClient(app)
+                resp = client.post(
+                    "/v1/chat/completions",
+                    headers={"Authorization": "Bearer test"},
+                    json={"messages": [{"role": "user", "content": "帮我实现一个爬虫程序"}]},
+                )
+                assert resp.status_code == 200
+                assert "直接要求代码" in resp.json()["choices"][0]["message"]["content"]
     finally:
         # Clean up the override
         app.dependency_overrides.clear()

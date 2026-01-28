@@ -13,6 +13,7 @@ from gateway.app.core.logging import get_logger
 from gateway.app.core.tokenizer import TokenCounter, count_message_tokens
 from gateway.app.core.utils import get_current_week_number
 from gateway.app.db.crud import check_and_consume_quota
+from gateway.app.services.quota_cache import get_quota_cache_service
 from gateway.app.db.models import Student
 from gateway.app.exceptions import QuotaExceededError
 from gateway.app.middleware.auth import require_api_key
@@ -84,7 +85,8 @@ async def check_and_reserve_quota(
 ) -> int:
     """Check if student has remaining quota and reserve estimated tokens.
     
-    Uses atomic check-and-consume to prevent race conditions.
+    First checks cache for quota state, falls back to database on miss
+    or insufficient quota. Uses optimistic locking for cache updates.
     
     Args:
         student: The student to check
@@ -97,7 +99,13 @@ async def check_and_reserve_quota(
     Raises:
         QuotaExceededError: If student has no remaining quota
     """
-    success, remaining, used = await check_and_consume_quota(student.id, estimated_tokens)
+    quota_service = get_quota_cache_service()
+    success, remaining, used = await quota_service.check_and_reserve_quota(
+        student_id=student.id,
+        week_number=week_number,
+        current_week_quota=student.current_week_quota,
+        tokens_needed=estimated_tokens,
+    )
     
     if not success:
         raise QuotaExceededError(
