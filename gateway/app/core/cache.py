@@ -273,7 +273,8 @@ class RedisCache(CacheBackend):
     async def close(self) -> None:
         """Close the Redis connection."""
         if self._redis is not None:
-            await self._redis.close()
+            # Use aclose() for proper async cleanup in redis-py 5.0+
+            await self._redis.aclose()
             self._redis = None
 
 

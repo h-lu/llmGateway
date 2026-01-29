@@ -1,13 +1,26 @@
 """Custom exceptions for the gateway application."""
 
-from fastapi import HTTPException
+
+class GatewayException(Exception):
+    """Base class for gateway exceptions with HTTP status code.
+    
+    All custom exceptions should inherit from this class and define
+    their specific status_code for consistent HTTP response handling.
+    """
+    status_code: int = 500
+    
+    def __init__(self, message: str = "Gateway error"):
+        self.message = message
+        super().__init__(message)
 
 
-class QuotaExceededError(HTTPException):
+class QuotaExceededError(GatewayException):
     """Raised when a student has exceeded their weekly token quota.
     
-    Returns HTTP 429 Too Many Requests with details about quota status.
+    Exception data includes details about quota status.
+    Maps to HTTP 429 Too Many Requests.
     """
+    status_code = 429
     
     def __init__(
         self,
@@ -15,46 +28,37 @@ class QuotaExceededError(HTTPException):
         reset_week: int | None = None,
         detail: str | None = None
     ):
+        self.remaining = remaining
+        self.reset_week = reset_week
         message = detail or (
             f"Weekly token quota exceeded. "
             f"Remaining: {remaining} tokens. "
         )
         if reset_week:
             message += f"Quota resets at week {reset_week}."
-        
-        super().__init__(
-            status_code=429,
-            detail={
-                "error": "quota_exceeded",
-                "message": message,
-                "remaining_tokens": remaining,
-                "reset_week": reset_week,
-            }
-        )
+        super().__init__(message)
 
 
-class AuthenticationError(HTTPException):
-    """Raised when API key authentication fails."""
+class AuthenticationError(GatewayException):
+    """Raised when API key authentication fails.
+    
+    Maps to HTTP 401 Unauthorized.
+    """
+    status_code = 401
     
     def __init__(self, detail: str = "Invalid or missing API key"):
-        super().__init__(
-            status_code=401,
-            detail={
-                "error": "authentication_failed",
-                "message": detail,
-            }
-        )
+        self.detail = detail
+        super().__init__(detail)
 
 
-class RuleViolationError(HTTPException):
-    """Raised when a prompt violates a blocking rule."""
+class RuleViolationError(GatewayException):
+    """Raised when a prompt violates a blocking rule.
+    
+    Maps to HTTP 400 Bad Request.
+    """
+    status_code = 400
     
     def __init__(self, rule_id: str | None = None, message: str = "Content blocked by policy"):
-        super().__init__(
-            status_code=400,
-            detail={
-                "error": "rule_violation",
-                "message": message,
-                "rule_id": rule_id,
-            }
-        )
+        self.rule_id = rule_id
+        self.message = message
+        super().__init__(message)

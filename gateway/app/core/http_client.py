@@ -51,9 +51,21 @@ async def init_http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
         keepalive_expiry=settings.httpx_keepalive_expiry
     )
     
+    # Configure granular timeouts per Context7 best practices
+    # - connect: Time to establish socket connection
+    # - read: Time to read response data (streaming responses need more time)
+    # - write: Time to send request data
+    # - pool: Time to acquire connection from pool
+    timeout = httpx.Timeout(
+        connect=settings.httpx_connect_timeout,
+        read=settings.httpx_read_timeout,
+        write=settings.httpx_write_timeout,
+        pool=settings.httpx_pool_timeout
+    )
+    
     # Initialize shared HTTP client
     _shared_http_client = httpx.AsyncClient(
-        timeout=settings.httpx_timeout,
+        timeout=timeout,
         limits=limits
     )
     

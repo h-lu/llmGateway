@@ -517,8 +517,9 @@ async def chat_completions(
             headers={"X-Request-ID": request_id}
         )
     
-    # Check and reserve quota (pass session for transaction consistency)
-    await check_and_reserve_quota(student, week_number, estimated_tokens=max_tokens, session=session)
+    # Check and reserve quota (session is managed by get_db() dependency)
+    # Note: get_db() handles commit/rollback automatically based on success/failure
+    remaining = await check_and_reserve_quota(student, week_number, estimated_tokens=max_tokens, session=session)
     
     # Build payload for upstream
     payload = {
@@ -598,8 +599,12 @@ async def chat_completions(
                 if provider_name:
                     provider_name = provider_name.__name__.lower().replace('provider', '')
                     load_balancer._health_checker.mark_unhealthy(provider_name)
-            except Exception:
-                pass  # Ignore errors from health check marking
+            except Exception as mark_error:
+                # Log but don't fail if marking unhealthy fails
+                logger.debug(
+                    f"Failed to mark provider unhealthy: {mark_error}",
+                    extra={"request_id": request_id}
+                )
             continue
         except RuntimeError as e:
             # No providers available - distinguish between unconfigured and unhealthy

@@ -4,9 +4,11 @@ This module provides a factory pattern for creating provider instances
 based on configuration, with support for multiple providers and fallback.
 """
 
-from enum import Enum
-from typing import Dict, List, Optional, Type
+from __future__ import annotations
+
 import os
+from enum import Enum
+from typing import TYPE_CHECKING, Dict, List, Optional, Type
 
 import httpx
 
@@ -15,8 +17,11 @@ from gateway.app.core.logging import get_logger
 from gateway.app.providers.base import BaseProvider
 from gateway.app.providers.deepseek import DeepSeekProvider
 from gateway.app.providers.openai import OpenAIProvider
-from gateway.app.providers.loadbalancer import LoadBalancer
-from gateway.app.providers.health import ProviderHealthChecker
+
+if TYPE_CHECKING:
+    # Avoid circular imports at runtime
+    from gateway.app.providers.loadbalancer import LoadBalancer
+    from gateway.app.providers.health import ProviderHealthChecker
 
 logger = get_logger(__name__)
 
@@ -336,9 +341,13 @@ def get_health_checker(check_interval: float = 30.0) -> ProviderHealthChecker:
         
     Returns:
         The global ProviderHealthChecker instance
+        
+    Note:
+        This function imports ProviderHealthChecker lazily to avoid circular imports.
     """
     global _health_checker
     if _health_checker is None:
+        from gateway.app.providers.health import ProviderHealthChecker
         _health_checker = ProviderHealthChecker(check_interval=check_interval)
     return _health_checker
 
@@ -353,25 +362,26 @@ def get_load_balancer(
     
     Args:
         http_client: Optional HTTP client for connection pooling. If None,
-                     creates a new HTTP client for testing purposes.
+                     attempts to get the shared HTTP client from lifespan context.
         strategy: Load balancing strategy (round_robin, weighted, health_first)
         
     Returns:
         The global LoadBalancer instance with providers registered
+        
+    Note:
+        This function imports LoadBalancer lazily to avoid circular imports.
+        The http_client should typically be provided from the lifespan context.
     """
     global _load_balancer
     if _load_balancer is None:
-        # For testing, create a new HTTP client if none provided
-        # This handles cases where the lifespan context hasn't been started
+        # Import here to avoid circular imports at module level
+        from gateway.app.providers.loadbalancer import LoadBalancer
+        from gateway.app.providers.health import ProviderHealthChecker
+        
+        # Use provided client or attempt to get from lifespan context
         client = http_client
         if client is None:
-            try:
-                from gateway.app.core.http_client import get_http_client
-                client = get_http_client()
-            except RuntimeError:
-                # HTTP client not initialized (e.g., in tests)
-                # Create a temporary client for load balancer initialization
-                client = None
+            client = _try_get_shared_http_client()
         
         factory = get_provider_factory(client)
         health_checker = get_health_checker()
@@ -393,9 +403,25 @@ def get_load_balancer(
     return _load_balancer
 
 
+def _try_get_shared_http_client() -> Optional[httpx.AsyncClient]:
+    """Try to get the shared HTTP client from lifespan context.
+    
+    Returns:
+        The shared HTTP client if available, None otherwise (e.g., in tests
+        before lifespan is started).
+    """
+    try:
+        from gateway.app.core.http_client import get_http_client
+        return get_http_client()
+    except RuntimeError:
+        # HTTP client not initialized (e.g., in tests)
+        # Provider will create its own temporary client
+        return None
+
+
 def _register_providers_with_load_balancer(
-    load_balancer: LoadBalancer,
-    factory: ProviderFactory,
+    load_balancer: "LoadBalancer",
+    factory: "ProviderFactory",
     http_client: Optional[httpx.AsyncClient] = None
 ) -> None:
     """Register all configured providers with the load balancer.
@@ -404,6 +430,9 @@ def _register_providers_with_load_balancer(
         load_balancer: The load balancer to register providers with
         factory: The provider factory
         http_client: Optional HTTP client for creating providers
+    
+    Note:
+        Uses string type annotations to avoid circular imports.
     """
     configured_types = factory.list_configured_providers()
     

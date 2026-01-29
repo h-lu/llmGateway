@@ -25,7 +25,11 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com/v1"
     
     # HTTP Client connection pool settings
-    httpx_timeout: float = 60.0
+    httpx_timeout: float = 60.0  # Default timeout for all operations
+    httpx_connect_timeout: float = 10.0  # Time to establish connection
+    httpx_read_timeout: float = 60.0  # Time to read response data
+    httpx_write_timeout: float = 10.0  # Time to send request data
+    httpx_pool_timeout: float = 5.0  # Time to acquire connection from pool
     httpx_keepalive_expiry: float = 30.0
     httpx_max_connections: int = 100
     httpx_max_keepalive_connections: int = 20
@@ -46,6 +50,7 @@ class Settings(BaseSettings):
     rate_limit_requests_per_minute: int = 60
     rate_limit_burst_size: int = 10
     rate_limit_window_seconds: int = 60
+    rate_limit_fail_closed: bool = False  # If True, deny requests when Redis is unavailable
     
     # Logging settings
     log_level: str = "INFO"
