@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gateway.app.db.base import Base
@@ -48,3 +48,31 @@ class QuotaLog(Base):
     tokens_granted: Mapped[int] = mapped_column(Integer)
     tokens_used: Mapped[int] = mapped_column(Integer)
     reset_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class WeeklySystemPrompt(Base):
+    """Weekly system prompt configuration.
+    
+    Allows configuring custom system prompts for specific week ranges
+    to guide student learning progressively throughout the course.
+    """
+    
+    __tablename__ = "weekly_system_prompts"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    week_start: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    week_end: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    
+    def __repr__(self) -> str:
+        return f"<WeeklySystemPrompt(id={self.id}, weeks={self.week_start}-{self.week_end})>"
+    
+    def is_current_week(self, week_number: int) -> bool:
+        """Check if given week number falls within this prompt's range."""
+        return self.week_start <= week_number <= self.week_end
