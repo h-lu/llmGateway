@@ -7,12 +7,14 @@ session management for better performance in async applications.
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 from sqlalchemy.pool import NullPool
+from typing_extensions import Annotated
 
 from gateway.app.core.config import settings
 
@@ -125,3 +127,34 @@ async def init_async_db() -> None:
     engine = get_async_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency for database sessions.
+    
+    This function yields a database session that can be injected into
+    route handlers and other dependencies. The session is automatically
+    closed after the request is complete by the get_async_session()
+    context manager. Any uncommitted changes are rolled back if an 
+    exception occurs.
+    
+    Usage:
+        @app.get("/items")
+        async def get_items(session: SessionDep):
+            result = await session.execute(select(Item))
+            return result.scalars().all()
+    
+    Yields:
+        AsyncSession: Database session for the current request
+    """
+    async with get_async_session() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        # Note: session is automatically closed by get_async_session() context manager
+
+
+# Type alias for FastAPI dependency injection
+SessionDep = Annotated[AsyncSession, Depends(get_db)]

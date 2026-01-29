@@ -1,8 +1,9 @@
 import hashlib
 import os
 
-from fastapi import HTTPException, Request, Depends
+from fastapi import Depends, HTTPException, Request
 
+from gateway.app.db.dependencies import SessionDep
 from gateway.app.db.crud import lookup_student_by_hash
 from gateway.app.db.models import Student
 
@@ -63,17 +64,32 @@ def get_bearer_token(request: Request) -> str | None:
     return auth.replace("Bearer ", "", 1).strip()
 
 
-async def require_api_key(request: Request) -> Student:
+async def require_api_key(
+    request: Request,
+    session: SessionDep,
+) -> Student:
     """Validate API key and return the associated student.
+    
+    This function uses FastAPI's dependency injection to get a database session.
+    Use with Depends() in route definitions.
     
     Args:
         request: The incoming request
+        session: Database session injected via SessionDep
         
     Returns:
         The Student object associated with the API key
         
     Raises:
         HTTPException: 401 if API key is missing or invalid
+        
+    Example:
+        @router.post("/chat")
+        async def chat(
+            request: Request,
+            student: Student = Depends(require_api_key)
+        ):
+            ...
     """
     token = get_bearer_token(request)
     if not token:
@@ -81,9 +97,13 @@ async def require_api_key(request: Request) -> Student:
     
     # Hash the token and look up the student
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    student = await lookup_student_by_hash(token_hash)
+    student = await lookup_student_by_hash(session, token_hash)
     
     if not student:
         raise HTTPException(status_code=401, detail="Invalid API key")
     
     return student
+
+
+# Alias for backward compatibility
+require_api_key_with_session = require_api_key

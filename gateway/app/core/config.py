@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     All settings can be configured via environment variables or .env file.
     """
     
+    # Debug mode - enables detailed error responses
+    debug: bool = False
+    
     # Database settings
     database_url: str = "sqlite+pysqlite:///./teachproxy.db"
     db_pool_size: int = 10
@@ -42,6 +45,7 @@ class Settings(BaseSettings):
     # Rate limiting settings
     rate_limit_requests_per_minute: int = 60
     rate_limit_burst_size: int = 10
+    rate_limit_window_seconds: int = 60
     
     # Logging settings
     log_level: str = "INFO"
@@ -58,6 +62,9 @@ class Settings(BaseSettings):
     # Distributed quota settings
     quota_sync_interval_seconds: int = 60  # Sync Redis to DB every 60 seconds
     quota_redis_ttl_days: int = 7  # TTL for Redis quota keys (7 days)
+    
+    # Provider failover settings
+    max_failover_attempts: int = 3  # Maximum failover attempts for provider failures
     
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
