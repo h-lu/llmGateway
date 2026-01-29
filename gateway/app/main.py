@@ -3,6 +3,8 @@ from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request as StarletteRequest
 
 from gateway.app.api.chat import router as chat_router
 from gateway.app.api.metrics import router as metrics_router, MetricsMiddleware
@@ -72,6 +74,10 @@ def create_app() -> FastAPI:
     )
     
     # Add middleware (order matters: last added = first executed)
+    # Request body size limit middleware (outermost - checks first)
+    from gateway.app.middleware.request_size import RequestSizeLimitMiddleware
+    app.add_middleware(RequestSizeLimitMiddleware, max_body_size=10 * 1024 * 1024)  # 10MB limit
+    
     # Metrics middleware - collects request metrics
     app.add_middleware(MetricsMiddleware)
     
@@ -83,7 +89,7 @@ def create_app() -> FastAPI:
         window_seconds=settings.rate_limit_window_seconds
     )
     
-    # Request ID middleware for tracing
+    # Request ID middleware for tracing (innermost - closest to route)
     app.add_middleware(RequestIdMiddleware)
     
     # Include routers
@@ -155,27 +161,51 @@ def create_app() -> FastAPI:
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """Global exception handler for unhandled exceptions.
         
-        In debug mode, returns detailed error information including traceback.
-        In production, returns a generic error message to avoid information leakage.
+        Security notes:
+        - Never returns raw traceback to client (even in debug mode)
+        - Logs full details server-side for debugging
+        - Returns generic message in production
+        - Debug mode returns exception message but not stack trace
         """
-        logger.exception("Unhandled exception")
+        import traceback
         
-        # Debug mode: return detailed error information
+        # Generate traceback for logging (never sent to client)
+        tb_str = traceback.format_exc()
+        request_id = getattr(request.state, 'request_id', 'unknown')
+        
+        # Log full exception details server-side
+        logger.exception(
+            f"Unhandled exception [request_id={request_id}]",
+            extra={
+                "request_id": request_id,
+                "exception_type": type(exc).__name__,
+                "exception_message": str(exc),
+                "traceback": tb_str,
+            }
+        )
+        
+        # Debug mode: return limited diagnostic info (no traceback)
         if settings.debug:
-            import traceback
             return JSONResponse(
                 status_code=500,
                 content={
                     "error": "internal_error",
                     "message": str(exc),
-                    "traceback": traceback.format_exc()
+                    "exception_type": type(exc).__name__,
+                    "request_id": request_id,
+                    # Note: traceback is intentionally omitted for security
+                    # Check server logs for full stack trace
                 }
             )
         
-        # Production: return generic error message
+        # Production: return generic error message (no details)
         return JSONResponse(
             status_code=500,
-            content={"error": "internal_error", "message": "Internal server error"}
+            content={
+                "error": "internal_error",
+                "message": "Internal server error",
+                "request_id": request_id,  # Include for support correlation
+            }
         )
     
     return app

@@ -2,6 +2,7 @@
 
 import pytest
 import asyncio
+from unittest.mock import patch
 
 from gateway.app.core.cache import InMemoryCache, reset_cache
 from gateway.app.services.quota_cache import (
@@ -186,9 +187,25 @@ class TestQuotaCacheServiceCheckAndReserve:
         reset_cache()
         reset_quota_cache_service()
     
+    @pytest.fixture
+    def mock_get_async_session(self):
+        """Mock the get_async_session to avoid database dependency."""
+        from contextlib import asynccontextmanager
+        from unittest.mock import AsyncMock
+        
+        mock_session = AsyncMock()
+        
+        @asynccontextmanager
+        async def _mock_session():
+            yield mock_session
+        
+        # Patch at the module level where it's imported
+        with patch("gateway.app.db.async_session.get_async_session", _mock_session):
+            yield mock_session
+    
     @pytest.mark.asyncio
-    async def test_cache_hit_sufficient_quota(self, monkeypatch):
-        """Test successful reservation when cache has sufficient quota."""
+    async def test_cache_hit_sufficient_quota(self, monkeypatch, mock_get_async_session):
+        """Test successful reservation updates cache from DB result."""
         # Setup cache with sufficient quota
         state = QuotaCacheState(
             student_id="test_student",
@@ -199,12 +216,9 @@ class TestQuotaCacheServiceCheckAndReserve:
         )
         await self.service.set_quota_state(state)
         
-        # Should not call DB
-        db_called = False
-        async def mock_db(*args, **kwargs):
-            nonlocal db_called
-            db_called = True
-            return True, 0, 0
+        # Mock DB to return successful reservation (session is first arg now)
+        async def mock_db(session, student_id, tokens, auto_commit=True):
+            return True, 600, 400  # success, remaining, used
         
         from gateway.app.services import quota_cache
         monkeypatch.setattr(quota_cache, "check_and_consume_quota", mock_db)
@@ -217,17 +231,16 @@ class TestQuotaCacheServiceCheckAndReserve:
         )
         
         assert success is True
-        assert remaining == 600  # 1000 - 300 - 100
-        assert used == 400  # 300 + 100
-        assert db_called is False
+        assert remaining == 600  # From DB
+        assert used == 400  # From DB
         
-        # Verify cache was updated
+        # Verify cache was updated with DB result
         cached = await self.service.get_quota_state("test_student", week_number=5)
         assert cached.used_quota == 400
-        assert cached.version == 2
+        assert cached.remaining == 600
     
     @pytest.mark.asyncio
-    async def test_cache_hit_insufficient_quota(self, monkeypatch):
+    async def test_cache_hit_insufficient_quota(self, monkeypatch, mock_get_async_session):
         """Test failure when cache shows insufficient quota."""
         # Setup cache with insufficient quota
         state = QuotaCacheState(
@@ -239,8 +252,8 @@ class TestQuotaCacheServiceCheckAndReserve:
         )
         await self.service.set_quota_state(state)
         
-        # Mock DB to simulate exhausted quota
-        async def mock_db(student_id, tokens):
+        # Mock DB to simulate exhausted quota (session is first arg now)
+        async def mock_db(session, student_id, tokens, auto_commit=True):
             return False, 50, 950
         
         from gateway.app.services import quota_cache
@@ -258,10 +271,10 @@ class TestQuotaCacheServiceCheckAndReserve:
         assert used == 950
     
     @pytest.mark.asyncio
-    async def test_cache_miss_calls_db(self, monkeypatch):
+    async def test_cache_miss_calls_db(self, monkeypatch, mock_get_async_session):
         """Test DB is called on cache miss."""
         db_called = False
-        async def mock_db(student_id, tokens):
+        async def mock_db(session, student_id, tokens, auto_commit=True):
             nonlocal db_called
             db_called = True
             return True, 700, 300

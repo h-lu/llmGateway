@@ -14,6 +14,7 @@ from gateway.app.core.tokenizer import TokenCounter, count_message_tokens
 from gateway.app.core.utils import get_current_week_number
 from gateway.app.services.quota_cache import get_quota_cache_service
 from gateway.app.db.models import Student
+from gateway.app.db.dependencies import SessionDep
 from gateway.app.exceptions import QuotaExceededError
 from gateway.app.middleware.auth import require_api_key
 from gateway.app.middleware.request_id import get_request_id, get_traceparent
@@ -27,8 +28,8 @@ from gateway.app.services.async_logger import (
     get_async_logger,
 )
 
-# Maximum failover attempts for provider failures
-MAX_FAILOVER_ATTEMPTS = 3
+# Maximum failover attempts for provider failures (from configuration)
+MAX_FAILOVER_ATTEMPTS = settings.max_failover_attempts
 
 
 def get_load_balancer_dependency() -> LoadBalancer:
@@ -80,7 +81,8 @@ def check_student_quota(student: Student, week_number: int) -> int:
 async def check_and_reserve_quota(
     student: Student, 
     week_number: int, 
-    estimated_tokens: int = 1000
+    estimated_tokens: int = 1000,
+    session: SessionDep = None,
 ) -> int:
     """Check if student has remaining quota and reserve estimated tokens.
     
@@ -91,6 +93,7 @@ async def check_and_reserve_quota(
         student: The student to check
         week_number: Current week number
         estimated_tokens: Estimated tokens to reserve
+        session: Database session for transaction consistency (optional)
         
     Returns:
         Remaining token quota after reservation
@@ -104,6 +107,7 @@ async def check_and_reserve_quota(
         week_number=week_number,
         current_week_quota=student.current_week_quota,
         tokens_needed=estimated_tokens,
+        session=session,
     )
     
     if not success:
@@ -174,6 +178,11 @@ async def handle_streaming_response(
         
     Returns:
         StreamingResponse with SSE stream
+        
+    Error Handling:
+        - JSON decode errors: Logged but stream continues (non-fatal)
+        - Upstream errors: Returns error message to client and terminates
+        - Unexpected errors: Returns generic error message (no sensitive info)
     """
     token_counter = TokenCounter(model=model)
     
@@ -181,9 +190,21 @@ async def handle_streaming_response(
         full_content = ""
         prompt_tokens = count_message_tokens(payload.get("messages", []), model)
         completion_tokens = 0
+        parse_errors = 0  # Track consecutive parse errors
+        max_parse_errors = 10  # Abort after too many errors
         
         try:
             async for line in provider.stream_chat(payload, traceparent=traceparent):
+                # Check for excessive parse errors
+                if parse_errors >= max_parse_errors:
+                    logger.error(
+                        f"Too many parse errors ({parse_errors}), aborting stream",
+                        extra={"request_id": request_id}
+                    )
+                    yield 'data: {"error": "Stream parsing failed, please retry"}\n\n'
+                    yield "data: [DONE]\n\n"
+                    return
+                
                 yield line + "\n\n"
                 
                 # Parse and count tokens
@@ -204,20 +225,66 @@ async def handle_streaming_response(
                         usage = data.get("usage", {})
                         if usage.get("total_tokens"):
                             completion_tokens = usage.get("completion_tokens", completion_tokens)
+                        
+                        # Reset parse error counter on success
+                        parse_errors = 0
                             
                 except json.JSONDecodeError:
-                    logger.debug(f"Failed to parse SSE line: {line[:100]}")
+                    parse_errors += 1
+                    # Log at warning level if persistent, debug otherwise
+                    log_level = logger.warning if parse_errors > 3 else logger.debug
+                    log_level(
+                        f"Failed to parse SSE line (error {parse_errors}/{max_parse_errors})",
+                        extra={
+                            "request_id": request_id,
+                            "line_preview": line[:100] if len(line) < 200 else line[:100] + "..."
+                        }
+                    )
+                except (KeyError, IndexError, TypeError) as e:
+                    # Data structure errors - log but continue
+                    parse_errors += 1
+                    logger.warning(
+                        f"Unexpected data structure in stream chunk: {e}",
+                        extra={"request_id": request_id, "error_type": type(e).__name__}
+                    )
                 except Exception as e:
-                    logger.warning(f"Error processing stream chunk: {e}")
+                    # Unexpected errors during parsing
+                    parse_errors += 1
+                    logger.warning(
+                        f"Error processing stream chunk: {e}",
+                        extra={"request_id": request_id, "error_type": type(e).__name__}
+                    )
                     
         except httpx.HTTPStatusError as e:
-            logger.error(f"Upstream HTTP error: {e.response.status_code} - {e.response.text[:200]}")
-            yield f"data: {{\"error\": \"Upstream error: {e.response.status_code}\"}}\n\n"
+            # Upstream API error - log details but return safe message
+            logger.error(
+                f"Upstream HTTP error: {e.response.status_code}",
+                extra={
+                    "request_id": request_id,
+                    "status_code": e.response.status_code,
+                    "response_preview": e.response.text[:200] if len(e.response.text) > 200 else e.response.text
+                }
+            )
+            # Return safe error message (no upstream details to client)
+            yield 'data: {"error": "Upstream service error"}\n\n'
+            yield "data: [DONE]\n\n"
+            return
+        except httpx.TimeoutException:
+            logger.error(
+                "Upstream timeout",
+                extra={"request_id": request_id}
+            )
+            yield 'data: {"error": "Request timeout, please retry"}\n\n'
             yield "data: [DONE]\n\n"
             return
         except Exception as e:
-            logger.error(f"Stream error: {e}")
-            yield f"data: {{\"error\": \"Stream error: {str(e)}\"}}\n\n"
+            # Unexpected error - log full details but return generic message
+            logger.exception(
+                f"Unexpected stream error: {e}",
+                extra={"request_id": request_id}
+            )
+            # Generic error message (no exception details to client)
+            yield 'data: {"error": "Stream interrupted, please retry"}\n\n'
             yield "data: [DONE]\n\n"
             return
         finally:
@@ -231,7 +298,8 @@ async def handle_streaming_response(
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
                     "total_tokens": total_tokens,
-                    "request_id": request_id
+                    "request_id": request_id,
+                    "parse_errors": parse_errors
                 }
             )
             
@@ -375,7 +443,8 @@ async def chat_completions(
     student: Student = Depends(require_api_key),
     async_logger: AsyncConversationLogger = Depends(get_async_logger),
     load_balancer: LoadBalancer = Depends(get_load_balancer_dependency),
-):
+    session: SessionDep = None,
+) -> StreamingResponse | JSONResponse:
     """Handle chat completion requests.
     
     This endpoint:
@@ -433,7 +502,7 @@ async def chat_completions(
         log_data = ConversationLogData(
             student_id=student.id,
             prompt=prompt,
-            response=result.message,
+            response=result.message or "",
             tokens_used=0,
             action="blocked",
             rule_triggered=result.rule_id,
@@ -444,12 +513,12 @@ async def chat_completions(
         async_logger.log_conversation(background_tasks, log_data)
         
         return JSONResponse(
-            content=create_blocked_response(result.message, result.rule_id),
+            content=create_blocked_response(result.message or "", result.rule_id),
             headers={"X-Request-ID": request_id}
         )
     
-    # Check and reserve quota
-    await check_and_reserve_quota(student, week_number, estimated_tokens=max_tokens)
+    # Check and reserve quota (pass session for transaction consistency)
+    await check_and_reserve_quota(student, week_number, estimated_tokens=max_tokens, session=session)
     
     # Build payload for upstream
     payload = {
@@ -478,7 +547,7 @@ async def chat_completions(
     
     for attempt in range(MAX_FAILOVER_ATTEMPTS):
         try:
-            provider = load_balancer.get_provider()
+            provider = await load_balancer.get_provider()
             provider_name = getattr(provider, '__class__', None)
             if provider_name:
                 provider_name = provider_name.__name__

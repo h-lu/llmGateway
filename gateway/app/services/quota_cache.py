@@ -6,7 +6,7 @@ Uses 30-second TTL and optimistic locking for updates.
 
 import json
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from gateway.app.core.cache import CacheBackend, get_cache
 from gateway.app.core.utils import get_current_week_number
@@ -162,13 +162,14 @@ class QuotaCacheService:
         current_week_quota: int,
         tokens_needed: int,
         week_number: Optional[int] = None,
+        session: Optional[Any] = None,
     ) -> tuple[bool, int, int]:
         """Check and reserve quota using cache for fast checks, DB for persistence.
         
         First checks cache for quota state for fast rejection of over-quota requests.
         If cache shows insufficient quota, returns failure immediately.
         
-        Always uses database atomic check_and_consume_quota for actual reservation
+        Uses database atomic check_and_consume_quota for actual reservation
         to ensure consistency. Updates cache with result after DB operation.
         
         Args:
@@ -176,6 +177,8 @@ class QuotaCacheService:
             current_week_quota: Maximum tokens allowed for the week
             tokens_needed: Number of tokens to reserve
             week_number: The academic week number. If None, uses current week.
+            session: Optional database session. If provided, uses it for the operation
+                    (for transaction consistency). If None, creates a new session.
             
         Returns:
             Tuple of (success, remaining_quota, current_used)
@@ -195,10 +198,20 @@ class QuotaCacheService:
             if cached_state.remaining < tokens_needed:
                 return False, cached_state.remaining, cached_state.used_quota
         
-        # Always use DB atomic operation for actual reservation
-        success, remaining, used = await check_and_consume_quota(
-            student_id, tokens_needed
-        )
+        # Use provided session or create a new one
+        if session is not None:
+            # Use the provided session (e.g., from FastAPI dependency)
+            success, remaining, used = await check_and_consume_quota(
+                session, student_id, tokens_needed, auto_commit=False
+            )
+            # Note: caller is responsible for committing the session
+        else:
+            # Create a new session for this operation
+            from gateway.app.db.async_session import get_async_session
+            async with get_async_session() as new_session:
+                success, remaining, used = await check_and_consume_quota(
+                    new_session, student_id, tokens_needed, auto_commit=True
+                )
         
         if success:
             # Update cache with new state from DB

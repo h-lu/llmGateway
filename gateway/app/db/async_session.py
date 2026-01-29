@@ -135,8 +135,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     This function yields a database session that can be injected into
     route handlers and other dependencies. The session is automatically
     closed after the request is complete by the get_async_session()
-    context manager. Any uncommitted changes are rolled back if an 
-    exception occurs.
+    context manager. 
+    
+    Transaction handling:
+    - Successful requests: changes are automatically committed
+    - Exceptions: changes are rolled back, exception is re-raised
     
     Usage:
         @app.get("/items")
@@ -150,10 +153,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with get_async_session() as session:
         try:
             yield session
+            # Commit successful transactions
+            await session.commit()
         except Exception:
+            # Rollback on any exception, then re-raise
             await session.rollback()
             raise
-        # Note: session is automatically closed by get_async_session() context manager
+        finally:
+            # Ensure session is closed
+            await session.close()
 
 
 # Type alias for FastAPI dependency injection

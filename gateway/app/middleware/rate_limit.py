@@ -398,27 +398,36 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """Get rate limit key for the request.
         
         Uses API key if available, otherwise falls back to IP address.
+        API keys are hashed using SHA-256 to prevent storing or exposing raw keys.
         
         Args:
             request: FastAPI request object
             
         Returns:
-            Rate limit key string
+            Rate limit key string (hashed, no sensitive data exposed)
         """
+        import hashlib
+        
         # Try to get API key from Authorization header
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
-            # Use hash of API key to avoid storing raw keys in Redis
-            import hashlib
-            api_key = auth[7:]
-            return f"ratelimit:apikey:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
+            # Use hash of API key to avoid storing raw keys in memory or cache
+            # SHA-256 is used for consistent hashing, only first 16 chars used for key brevity
+            api_key = auth[7:].strip()
+            # Use full SHA-256 hash for better collision resistance, truncate for key length
+            key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:16]
+            return f"ratelimit:apikey:{key_hash}"
         
-        # Fall back to IP address
+        # Fall back to IP address (also hash IP for privacy)
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
-            return f"ratelimit:ip:{forwarded.split(',')[0].strip()}"
+            client_ip = forwarded.split(',')[0].strip()
+        else:
+            client_ip = request.client.host if request.client else 'unknown'
         
-        return f"ratelimit:ip:{request.client.host if request.client else 'unknown'}"
+        # Hash IP address for privacy compliance (GDPR, etc.)
+        ip_hash = hashlib.sha256(client_ip.encode()).hexdigest()[:16]
+        return f"ratelimit:ip:{ip_hash}"
     
     async def dispatch(
         self,
