@@ -6,6 +6,7 @@ Set RUN_REAL_LLM_TESTS=true to enable.
 
 import os
 import pytest
+import pytest_asyncio
 from datetime import datetime
 from typing import List, Dict, Any
 import httpx
@@ -60,7 +61,7 @@ class DeepSeekClient:
             return data["choices"][0]["message"]["content"]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def deepseek_client():
     """Provide DeepSeek client."""
     return DeepSeekClient()
