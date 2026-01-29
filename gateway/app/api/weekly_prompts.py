@@ -68,8 +68,15 @@ async def list_weekly_prompts(
     active_only: bool = False,
 ) -> List[WeeklySystemPrompt]:
     """List all weekly system prompts."""
-    prompts = await get_all_weekly_prompts(session, active_only=active_only)
-    return prompts
+    try:
+        prompts = await get_all_weekly_prompts(session, active_only=active_only)
+        return prompts
+    except SQLAlchemyError as e:
+        logger.error(f"Database error listing weekly prompts: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while listing prompts"
+        )
 
 
 @router.post("", response_model=WeeklyPromptResponse, status_code=status.HTTP_201_CREATED)

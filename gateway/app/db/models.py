@@ -59,7 +59,7 @@ class WeeklySystemPrompt(Base):
     
     __tablename__ = "weekly_system_prompts"
     
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     week_start: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     week_end: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
