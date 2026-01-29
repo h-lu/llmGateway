@@ -1,9 +1,13 @@
 """Admin API endpoints for managing weekly system prompts."""
 
+from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from gateway.app.core.logging import get_logger
 from gateway.app.db.dependencies import SessionDep
 from gateway.app.db.models import WeeklySystemPrompt
 from gateway.app.db.weekly_prompt_crud import (
@@ -15,6 +19,7 @@ from gateway.app.db.weekly_prompt_crud import (
 from gateway.app.services.weekly_prompt_service import get_weekly_prompt_service
 
 router = APIRouter(prefix="/admin/weekly-prompts", tags=["admin"])
+logger = get_logger(__name__)
 
 
 class WeeklyPromptCreate(BaseModel):
@@ -50,8 +55,8 @@ class WeeklyPromptResponse(BaseModel):
     system_prompt: str
     description: Optional[str]
     is_active: bool
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
     
     class Config:
         from_attributes = True
@@ -73,18 +78,25 @@ async def create_prompt(
     session: SessionDep,
 ) -> WeeklySystemPrompt:
     """Create a new weekly system prompt."""
-    prompt = await create_weekly_prompt(
-        session=session,
-        week_start=data.week_start,
-        week_end=data.week_end,
-        system_prompt=data.system_prompt,
-        description=data.description,
-    )
-    
-    # Invalidate cache so new prompt is used immediately
-    get_weekly_prompt_service().invalidate_cache()
-    
-    return prompt
+    try:
+        prompt = await create_weekly_prompt(
+            session=session,
+            week_start=data.week_start,
+            week_end=data.week_end,
+            system_prompt=data.system_prompt,
+            description=data.description,
+        )
+        
+        # Invalidate cache so new prompt is used immediately
+        get_weekly_prompt_service().invalidate_cache()
+        
+        return prompt
+    except SQLAlchemyError as e:
+        logger.error(f"Database error creating weekly prompt: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while creating the prompt"
+        )
 
 
 @router.put("/{prompt_id}", response_model=WeeklyPromptResponse)
@@ -94,20 +106,27 @@ async def update_prompt(
     session: SessionDep,
 ) -> WeeklySystemPrompt:
     """Update a weekly system prompt."""
-    update_data = data.model_dump(exclude_unset=True)
-    
-    prompt = await update_weekly_prompt(session, prompt_id, **update_data)
-    
-    if prompt is None:
+    try:
+        update_data = data.model_dump(exclude_unset=True)
+        
+        prompt = await update_weekly_prompt(session, prompt_id, **update_data)
+        
+        if prompt is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Weekly prompt {prompt_id} not found"
+            )
+        
+        # Invalidate cache
+        get_weekly_prompt_service().invalidate_cache()
+        
+        return prompt
+    except SQLAlchemyError as e:
+        logger.error(f"Database error updating weekly prompt {prompt_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Weekly prompt {prompt_id} not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while updating the prompt"
         )
-    
-    # Invalidate cache
-    get_weekly_prompt_service().invalidate_cache()
-    
-    return prompt
 
 
 @router.delete("/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -116,13 +135,20 @@ async def delete_prompt(
     session: SessionDep,
 ) -> None:
     """Deactivate (soft delete) a weekly system prompt."""
-    success = await delete_weekly_prompt(session, prompt_id)
-    
-    if not success:
+    try:
+        success = await delete_weekly_prompt(session, prompt_id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Weekly prompt {prompt_id} not found"
+            )
+        
+        # Invalidate cache
+        get_weekly_prompt_service().invalidate_cache()
+    except SQLAlchemyError as e:
+        logger.error(f"Database error deleting weekly prompt {prompt_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Weekly prompt {prompt_id} not found"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error occurred while deleting the prompt"
         )
-    
-    # Invalidate cache
-    get_weekly_prompt_service().invalidate_cache()

@@ -34,6 +34,7 @@ class TestWeeklyPromptService:
         )
         service._cached_prompt = cached_prompt
         service._cached_week = 1
+        service._cache_valid = True
         
         mock_session = AsyncMock()
         
@@ -81,6 +82,9 @@ class TestWeeklyPromptService:
         result = await service.get_prompt_for_week(mock_session, week_number=99)
         
         assert result is None
+        # Should cache the None result
+        assert service._cache_valid is True
+        assert service._cached_week == 99
     
     @pytest.mark.asyncio
     async def test_cache_invalidation_on_week_change(self):
@@ -90,6 +94,7 @@ class TestWeeklyPromptService:
         # Set cache for week 1
         service._cached_week = 1
         service._cached_prompt = MagicMock()
+        service._cache_valid = True
         
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -107,28 +112,55 @@ class TestWeeklyPromptService:
         result = await service.get_prompt_for_week(mock_session, week_number=2)
         
         assert result.system_prompt == "第2周"
+        assert service._cache_valid is True
+        assert service._cached_week == 2
+    
+    @pytest.mark.asyncio
+    async def test_cache_none_value_valid(self):
+        """Test that None result is cached and doesn't cause unnecessary DB hits."""
+        service = WeeklyPromptService()
+        
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+        
+        # First call - should hit DB
+        result1 = await service.get_prompt_for_week(mock_session, week_number=5)
+        assert result1 is None
+        assert mock_session.execute.call_count == 1
+        
+        # Second call - should use cache, not hit DB again
+        result2 = await service.get_prompt_for_week(mock_session, week_number=5)
+        assert result2 is None
+        # Should still be 1, not 2
+        assert mock_session.execute.call_count == 1
     
     def test_invalidate_cache(self):
         """Test cache invalidation."""
         service = WeeklyPromptService()
         service._cached_week = 1
         service._cached_prompt = MagicMock()
+        service._cache_valid = True
         
         service.invalidate_cache()
         
         assert service._cached_week is None
         assert service._cached_prompt is None
+        assert service._cache_valid is False
     
     def test_reload(self):
         """Test reload method."""
         service = WeeklyPromptService()
         service._cached_week = 1
         service._cached_prompt = MagicMock()
+        service._cache_valid = True
         
         service.reload()
         
         assert service._cached_week is None
         assert service._cached_prompt is None
+        assert service._cache_valid is False
 
 
 class TestInjectWeeklySystemPrompt:

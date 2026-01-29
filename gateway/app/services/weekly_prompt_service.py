@@ -27,6 +27,7 @@ class WeeklyPromptService:
     def __init__(self):
         self._cached_week: Optional[int] = None
         self._cached_prompt: Optional[WeeklySystemPrompt] = None
+        self._cache_valid: bool = False
     
     async def get_prompt_for_week(
         self,
@@ -45,8 +46,8 @@ class WeeklyPromptService:
         Returns:
             WeeklySystemPrompt if configured, None otherwise
         """
-        # Check cache
-        if self._cached_week == week_number and self._cached_prompt is not None:
+        # Check cache - use cache_valid flag to handle None values correctly
+        if self._cached_week == week_number and self._cache_valid:
             return self._cached_prompt
         
         # Cache miss or week changed - fetch from DB
@@ -55,6 +56,7 @@ class WeeklyPromptService:
         # Update cache
         self._cached_week = week_number
         self._cached_prompt = prompt
+        self._cache_valid = True
         
         return prompt
     
@@ -62,6 +64,7 @@ class WeeklyPromptService:
         """Invalidate the current cache."""
         self._cached_week = None
         self._cached_prompt = None
+        self._cache_valid = False
     
     def reload(self) -> None:
         """Force reload on next request."""
