@@ -22,6 +22,10 @@ from gateway.app.providers.base import BaseProvider
 from gateway.app.providers.factory import get_load_balancer
 from gateway.app.providers.loadbalancer import LoadBalancer
 from gateway.app.services.rule_service import evaluate_prompt
+from gateway.app.services.weekly_prompt_service import (
+    get_weekly_prompt_service,
+    inject_weekly_system_prompt,
+)
 from gateway.app.services.async_logger import (
     AsyncConversationLogger,
     ConversationLogData,
@@ -517,6 +521,22 @@ async def chat_completions(
             headers={"X-Request-ID": request_id}
         )
     
+    # Load and inject weekly system prompt
+    weekly_prompt_service = get_weekly_prompt_service()
+    weekly_prompt = await weekly_prompt_service.get_prompt_for_week(session, week_number)
+    modified_messages = await inject_weekly_system_prompt(messages, weekly_prompt)
+    
+    if weekly_prompt:
+        logger.info(
+            "Weekly system prompt injected",
+            extra={
+                "student_id": student.id,
+                "week_number": week_number,
+                "prompt_id": weekly_prompt.id,
+                "request_id": request_id,
+            }
+        )
+    
     # Check and reserve quota (session is managed by get_db() dependency)
     # Note: get_db() handles commit/rollback automatically based on success/failure
     remaining = await check_and_reserve_quota(student, week_number, estimated_tokens=max_tokens, session=session)
@@ -524,24 +544,26 @@ async def chat_completions(
     # Build payload for upstream
     payload = {
         "model": model,
-        "messages": messages,
+        "messages": modified_messages,  # Use modified messages with weekly prompt
         "temperature": temperature,
         "max_tokens": max_tokens,
         "stream": stream,
     }
     
-    # For guided action, prepend guidance in system message
+    # Note: Guide action is deprecated in favor of weekly system prompts
+    # Keep for backward compatibility but log a warning
     if result.action == "guided":
-        guidance_system = {"role": "system", "content": f"[学习引导] {result.message}"}
-        payload["messages"] = [guidance_system] + list(messages)
-        logger.info(
-            "Guidance applied",
+        logger.warning(
+            "Guide action is deprecated, use weekly system prompts instead",
             extra={
                 "student_id": student.id,
                 "rule_id": result.rule_id,
                 "request_id": request_id
             }
         )
+        # Still apply the guide for backward compatibility
+        guidance_system = {"role": "system", "content": f"[学习引导] {result.message}"}
+        payload["messages"] = [guidance_system] + modified_messages
     
     # Initialize provider with load balancer and failover support
     last_error = None

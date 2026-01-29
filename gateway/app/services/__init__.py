@@ -40,6 +40,13 @@ from gateway.app.services.async_logger import (
     get_async_logger,
 )
 from gateway.app.services.conversation import save_conversation
+from gateway.app.services.weekly_prompt_service import (
+    WeeklyPromptService,
+    get_and_inject_weekly_prompt,
+    get_weekly_prompt_service,
+    inject_weekly_system_prompt,
+    reset_weekly_prompt_service,
+)
 
 __all__ = [
     # Quota (basic)
@@ -75,4 +82,10 @@ __all__ = [
     "get_async_logger",
     # Conversation
     "save_conversation",
+    # Weekly Prompt Service
+    "WeeklyPromptService",
+    "get_weekly_prompt_service",
+    "reset_weekly_prompt_service",
+    "inject_weekly_system_prompt",
+    "get_and_inject_weekly_prompt",
 ]

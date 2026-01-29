@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gateway.app.db.models import Conversation, QuotaLog, Rule, Student
+from gateway.app.db.models import Conversation, QuotaLog, Rule, Student, WeeklySystemPrompt
 
 
 # =============================================================================
@@ -578,3 +578,16 @@ async def get_quota_logs_by_student(
         .order_by(QuotaLog.week_number.desc())
     )
     return list(result.scalars().all())
+
+
+# =============================================================================
+# WeeklySystemPrompt Operations (re-exported from weekly_prompt_crud)
+# =============================================================================
+
+from gateway.app.db.weekly_prompt_crud import (
+    get_active_prompt_for_week,
+    get_all_weekly_prompts,
+    create_weekly_prompt,
+    update_weekly_prompt,
+    delete_weekly_prompt,
+)
