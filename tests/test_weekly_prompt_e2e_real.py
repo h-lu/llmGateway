@@ -5,6 +5,7 @@ Set RUN_REAL_LLM_TESTS=true to enable.
 """
 
 import os
+import json
 import pytest
 import pytest_asyncio
 from datetime import datetime
@@ -19,20 +20,38 @@ pytestmark = [
     ),
 ]
 
+# Global list to record all conversations
+CONVERSATION_LOG = []
+
+def log_conversation(test_name: str, messages: List[Dict], system_prompt: str, response: str):
+    """Record conversation for analysis."""
+    CONVERSATION_LOG.append({
+        "test": test_name,
+        "timestamp": datetime.now().isoformat(),
+        "system_prompt": system_prompt,
+        "messages": messages,
+        "response": response[:2000] if len(response) > 2000 else response  # Truncate long responses
+    })
+
 
 class DeepSeekClient:
-    """Simple DeepSeek API client for testing."""
+    """Simple DeepSeek API client for testing with conversation logging."""
     
     def __init__(self):
         self.api_key = os.getenv("TEST_LLM_API_KEY")
         self.model = os.getenv("TEST_LLM_MODEL", "deepseek-chat")
         self.base_url = "https://api.deepseek.com/v1"
+        self.current_test = "unknown"
         
         if not self.api_key:
             raise RuntimeError("TEST_LLM_API_KEY not set")
     
+    def set_test_name(self, name: str):
+        """Set current test name for logging."""
+        self.current_test = name
+    
     async def chat(self, messages: List[Dict[str, str]], system_prompt: str = None) -> str:
-        """Send chat request to DeepSeek."""
+        """Send chat request to DeepSeek and log conversation."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
@@ -58,7 +77,30 @@ class DeepSeekClient:
             )
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"]
+            content = data["choices"][0]["message"]["content"]
+            
+            # Log the conversation
+            log_conversation(
+                self.current_test,
+                messages,
+                system_prompt or "",
+                content
+            )
+            
+            return content
+
+
+@pytest.fixture(scope="session", autouse=True)
+def save_conversations(request):
+    """Save all conversations to file after test session."""
+    yield
+    
+    if CONVERSATION_LOG:
+        output_file = os.path.join(os.path.dirname(__file__), "REAL_LLM_CONVERSATIONS.json")
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(CONVERSATION_LOG, f, ensure_ascii=False, indent=2)
+        print(f"\n\n💾 Conversation log saved to: {output_file}")
+        print(f"📊 Total conversations recorded: {len(CONVERSATION_LOG)}")
 
 
 @pytest_asyncio.fixture
@@ -72,6 +114,7 @@ class TestRealPromptInjection:
     
     async def test_prompt_changes_llm_behavior(self, deepseek_client):
         """Verify system prompt truly changes LLM response style."""
+        deepseek_client.set_test_name("test_prompt_changes_llm_behavior")
         question = "用一句话解释什么是变量"
         
         # Baseline: no system prompt
@@ -96,6 +139,7 @@ class TestRealPromptInjection:
     
     async def test_teaching_style_constraint(self, deepseek_client):
         """Test that system prompt enforces teaching style."""
+        deepseek_client.set_test_name("test_teaching_style_constraint")
         question = "Python 的列表和元组有什么区别？"
         
         # Strict teaching style: no direct answers, use questions
@@ -118,6 +162,7 @@ class TestRealPromptInjection:
     
     async def test_language_constraint(self, deepseek_client):
         """Test that system prompt enforces output language."""
+        deepseek_client.set_test_name("test_language_constraint")
         question = "What is a function in programming?"
         
         # Force Chinese response even for English question
@@ -140,6 +185,7 @@ class TestMultiTurnConversation:
     
     async def test_context_memory_across_turns(self, deepseek_client):
         """Test that LLM remembers context from previous turns."""
+        deepseek_client.set_test_name("test_context_memory_across_turns")
         # Teacher persona that tracks student progress
         teacher_prompt = """你是Python导师，正在教一位初学者。
 重要：记住学生已经学过的内容，不要重复教学。
@@ -165,6 +211,7 @@ class TestMultiTurnConversation:
     
     async def test_weekly_prompt_guided_learning(self, deepseek_client):
         """Test week-specific learning guidance."""
+        deepseek_client.set_test_name("test_weekly_prompt_guided_learning")
         # Week 2: Focus on hands-on practice
         week2_prompt = """这是第2周：实践练习周。
 规则：
@@ -194,6 +241,7 @@ class TestWeekTransition:
     
     async def test_different_week_different_style(self, deepseek_client):
         """Verify different week prompts produce different teaching styles."""
+        deepseek_client.set_test_name("test_different_week_different_style")
         question = "教我 Python 字典"
         
         # Week 1: Theory focused
@@ -226,6 +274,7 @@ class TestPromptRobustness:
     
     async def test_long_prompt_handling(self, deepseek_client):
         """Test system prompt with 1000+ characters."""
+        deepseek_client.set_test_name("test_long_prompt_handling")
         long_prompt = "详细说明：" + "这是重要规则。" * 200  # ~1400 chars
         
         response = await deepseek_client.chat(
@@ -238,6 +287,7 @@ class TestPromptRobustness:
     
     async def test_special_characters_in_prompt(self, deepseek_client):
         """Test system prompt with special characters."""
+        deepseek_client.set_test_name("test_special_characters_in_prompt")
         special_prompt = """特殊字符测试：
 - 代码：`print("hello")`
 - 数学：x² + y² = z²
