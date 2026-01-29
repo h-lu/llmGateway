@@ -62,6 +62,13 @@ def create_app() -> FastAPI:
         
         async_logger = get_async_logger()
         await async_logger.shutdown()
+        
+        # Close cache connections (Redis)
+        from gateway.app.core.cache import get_cache
+        cache = get_cache()
+        if hasattr(cache, 'close'):
+            await cache.close()
+        
         await close_async_engine()
         
         logger.info("Application shutdown complete")

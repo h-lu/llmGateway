@@ -163,13 +163,25 @@ def get_current_trace_context() -> Optional[TraceContext]:
     return _trace_context_var.get()
 
 
-def set_current_trace_context(context: Optional[TraceContext]) -> None:
+def set_current_trace_context(context: Optional[TraceContext]):
     """Set the current trace context in context variable.
     
     Args:
         context: TraceContext to set, or None to clear
+        
+    Returns:
+        Token that can be used to reset the context
     """
-    _trace_context_var.set(context)
+    return _trace_context_var.set(context)
+
+
+def clear_current_trace_context(token) -> None:
+    """Clear the current trace context using the token from set.
+    
+    Args:
+        token: The token returned by set_current_trace_context
+    """
+    _trace_context_var.reset(token)
 
 
 def get_trace_id() -> Optional[str]:

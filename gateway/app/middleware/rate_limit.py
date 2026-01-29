@@ -295,7 +295,18 @@ class RedisRateLimiter(RateLimitBackend):
             
         except Exception as e:
             logger.warning(f"Redis rate limit error: {e}. Falling back to allow.")
-            # Fail open if Redis is unavailable
+            # Fail open if Redis is unavailable (configurable behavior)
+            # Note: For security-critical deployments, consider setting fail_closed=True
+            # in configuration to deny requests when rate limiting cannot be enforced
+            fail_closed = getattr(settings, 'rate_limit_fail_closed', False)
+            if fail_closed:
+                return RateLimitResult(
+                    allowed=False,
+                    limit=self.burst_size,
+                    remaining=0,
+                    reset_time=int(time.time() + self.window_seconds),
+                    retry_after=self.window_seconds
+                )
             return RateLimitResult(
                 allowed=True,
                 limit=self.burst_size,

@@ -1,21 +1,27 @@
 """Async conversation logging service with batch writing.
 
 This module provides asynchronous conversation logging with batch writing
-to improve database performance by buffering logs and writing them in bulk.
+to improve database performance by buffering logs and writing in bulk.
 """
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import BackgroundTasks
 
 from gateway.app.core.logging import get_logger
+from gateway.app.db.async_session import get_async_session
 from gateway.app.db.crud import save_conversation_bulk, update_student_quota_bulk
 from gateway.app.db.models import Conversation
 
 logger = get_logger(__name__)
+
+# Dead letter queue file path for failed logs
+DEAD_LETTER_QUEUE_PATH = Path("/tmp/gateway_failed_logs.jsonl")
 
 
 @dataclass
@@ -44,9 +50,9 @@ class AsyncConversationLogger:
     """Async conversation logger with batch writing.
     
     This class handles conversation logging with buffering and batch insertion
-    to improve database performance. Logs are collected in a buffer and written
-    to the database either when the buffer reaches a certain size or after a
-    timeout period.
+to improve database performance. Logs are collected in a buffer and written
+to the database either when the buffer reaches a certain size or after a
+timeout period.
     
     Features:
     - Batch buffering: collects up to `buffer_size` logs (default 100)
@@ -200,7 +206,7 @@ class AsyncConversationLogger:
         """Flush the buffer by writing all logs to the database.
         
         This method takes all logs from the buffer and writes them to the
-        database in a batch operation. Failed logs are retried.
+database in a batch operation. Failed logs are retried.
         """
         # Extract logs from buffer
         async with self._buffer_lock:
@@ -244,29 +250,30 @@ class AsyncConversationLogger:
         
         for attempt in range(1, self.max_retries + 1):
             try:
-                # Prepare conversation records
-                conversations = []
-                for entry in entries:
-                    log_data = entry.log_data
-                    conversation = Conversation(
-                        student_id=log_data.student_id,
-                        timestamp=datetime.now(),
-                        prompt_text=log_data.prompt,
-                        response_text=log_data.response,
-                        tokens_used=log_data.tokens_used,
-                        rule_triggered=log_data.rule_triggered,
-                        action_taken=log_data.action,
-                        week_number=log_data.week_number,
-                    )
-                    conversations.append(conversation)
-                
-                # Batch insert conversations
-                if conversations:
-                    await save_conversation_bulk(conversations)
-                
-                # Batch update quotas
-                if quota_adjustments:
-                    await update_student_quota_bulk(quota_adjustments)
+                async with get_async_session() as session:
+                    # Prepare conversation records
+                    conversations = []
+                    for entry in entries:
+                        log_data = entry.log_data
+                        conversation = Conversation(
+                            student_id=log_data.student_id,
+                            timestamp=datetime.now(),
+                            prompt_text=log_data.prompt,
+                            response_text=log_data.response,
+                            tokens_used=log_data.tokens_used,
+                            rule_triggered=log_data.rule_triggered,
+                            action_taken=log_data.action,
+                            week_number=log_data.week_number,
+                        )
+                        conversations.append(conversation)
+                    
+                    # Batch insert conversations
+                    if conversations:
+                        await save_conversation_bulk(session, conversations)
+                    
+                    # Batch update quotas
+                    if quota_adjustments:
+                        await update_student_quota_bulk(session, quota_adjustments)
                 
                 logger.info(
                     f"Successfully saved {len(conversations)} conversations",
@@ -285,21 +292,76 @@ class AsyncConversationLogger:
                     await asyncio.sleep(delay)
                     delay *= 2
         
-        # All retries exhausted - log individual failures
+        # All retries exhausted - write to dead letter queue for later recovery
         logger.error(
             f"Batch save failed after {self.max_retries} attempts: {last_error}. "
-            f"{len(entries)} conversation logs were lost."
+            f"Writing {len(entries)} conversation logs to dead letter queue."
         )
         
-        # Track failed entries for debugging
-        for entry in entries:
-            logger.error(
-                "Failed to save conversation",
+        await self._write_to_dead_letter_queue(entries)
+    
+    async def _write_to_dead_letter_queue(self, entries: List[LogBufferEntry]) -> None:
+        """Write failed log entries to a dead letter queue file for later recovery.
+        
+        This ensures audit trail data is not lost even during database outages.
+        Failed logs can be replayed later using the recovery script.
+        
+        Args:
+            entries: List of log entries that failed to save
+        """
+        try:
+            # Use asyncio.to_thread to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            
+            def _write_sync():
+                # Ensure directory exists
+                DEAD_LETTER_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                
+                with open(DEAD_LETTER_QUEUE_PATH, "a", encoding="utf-8") as f:
+                    for entry in entries:
+                        log_record = {
+                            "timestamp": datetime.now().isoformat(),
+                            "student_id": entry.log_data.student_id,
+                            "prompt": entry.log_data.prompt,
+                            "response": entry.log_data.response,
+                            "tokens_used": entry.log_data.tokens_used,
+                            "action": entry.log_data.action,
+                            "rule_triggered": entry.log_data.rule_triggered,
+                            "week_number": entry.log_data.week_number,
+                            "max_tokens": entry.log_data.max_tokens,
+                            "request_id": entry.log_data.request_id,
+                        }
+                        f.write(json.dumps(log_record, ensure_ascii=False) + "\n")
+            
+            await loop.run_in_executor(None, _write_sync)
+            
+            logger.info(
+                f"Successfully wrote {len(entries)} failed logs to dead letter queue",
+                extra={"dead_letter_queue": str(DEAD_LETTER_QUEUE_PATH)}
+            )
+            
+        except Exception as dlq_error:
+            # Last resort: log the error with full details
+            logger.critical(
+                f"Failed to write to dead letter queue: {dlq_error}. "
+                f"{len(entries)} conversation logs are permanently lost!",
                 extra={
-                    "student_id": entry.log_data.student_id,
-                    "request_id": entry.log_data.request_id,
+                    "dlq_error": str(dlq_error),
+                    "entry_count": len(entries),
                 }
             )
+            
+            # Log each entry individually for debugging
+            for entry in entries:
+                logger.error(
+                    "Permanently lost conversation log",
+                    extra={
+                        "student_id": entry.log_data.student_id,
+                        "request_id": entry.log_data.request_id,
+                        "action": entry.log_data.action,
+                        "tokens_used": entry.log_data.tokens_used,
+                    }
+                )
 
 
 # Global instance for convenience

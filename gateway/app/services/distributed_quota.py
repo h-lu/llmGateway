@@ -166,20 +166,22 @@ class DistributedQuotaService:
         Returns:
             DistributedQuotaState if found, None otherwise
         """
-        student = await get_student_by_id(student_id)
-        if student is None:
-            return None
-        
-        if week_number is None:
-            week_number = get_current_week_number()
-        
-        return DistributedQuotaState(
-            student_id=student_id,
-            current_week_quota=student.current_week_quota,
-            used_quota=student.used_quota,
-            week_number=week_number,
-            source="db",
-        )
+        from gateway.app.db.async_session import get_async_session
+        async with get_async_session() as session:
+            student = await get_student_by_id(session, student_id)
+            if student is None:
+                return None
+            
+            if week_number is None:
+                week_number = get_current_week_number()
+            
+            return DistributedQuotaState(
+                student_id=student_id,
+                current_week_quota=student.current_week_quota,
+                used_quota=student.used_quota,
+                week_number=week_number,
+                source="db",
+            )
     
     async def _init_redis_quota(
         self,
@@ -324,7 +326,9 @@ class DistributedQuotaService:
                 logger.warning(f"Redis quota check failed for {student_id}: {e}. Falling back to DB.")
         
         # Fallback to database
-        return await check_and_consume_quota(student_id, tokens_needed)
+        from gateway.app.db.async_session import get_async_session
+        async with get_async_session() as session:
+            return await check_and_consume_quota(session, student_id, tokens_needed)
     
     async def _check_and_consume_with_redis(
         self,
@@ -456,15 +460,17 @@ class DistributedQuotaService:
                 logger.warning(f"Failed to release Redis quota for {student_id}: {e}")
         
         # Fallback: update database directly (negative adjustment)
+        from gateway.app.db.async_session import get_async_session
         try:
-            # Get current state
-            student = await get_student_by_id(student_id)
-            if student:
-                new_used = max(0, student.used_quota - tokens_to_release)
-                adjustment = new_used - student.used_quota
-                if adjustment != 0:
-                    await update_student_quota(student_id, adjustment)
-                return True
+            async with get_async_session() as session:
+                # Get current state
+                student = await get_student_by_id(session, student_id)
+                if student:
+                    new_used = max(0, student.used_quota - tokens_to_release)
+                    adjustment = new_used - student.used_quota
+                    if adjustment != 0:
+                        await update_student_quota(session, student_id, adjustment)
+                    return True
         except Exception as e:
             logger.error(f"Failed to release DB quota for {student_id}: {e}")
         
@@ -543,30 +549,32 @@ class DistributedQuotaService:
         
         synced_count = 0
         
-        for student_id, redis_used in pending.items():
-            try:
-                # Get current DB state
-                student = await get_student_by_id(student_id)
-                if student is None:
-                    continue
-                
-                # Calculate adjustment needed
-                db_used = student.used_quota
-                adjustment = redis_used - db_used
-                
-                if adjustment != 0:
-                    await update_student_quota(student_id, adjustment)
-                    synced_count += 1
-                    logger.debug(
-                        f"Synced quota for {student_id}: DB {db_used} -> {redis_used} "
-                        f"(adjustment: {adjustment:+d})"
-                    )
-            except Exception as e:
-                logger.error(f"Failed to sync quota for {student_id}: {e}")
-                # Re-add to pending for next sync
-                async with self._sync_lock:
-                    if student_id not in self._pending_syncs:
-                        self._pending_syncs[student_id] = redis_used
+        from gateway.app.db.async_session import get_async_session
+        async with get_async_session() as session:
+            for student_id, redis_used in pending.items():
+                try:
+                    # Get current DB state
+                    student = await get_student_by_id(session, student_id)
+                    if student is None:
+                        continue
+                    
+                    # Calculate adjustment needed
+                    db_used = student.used_quota
+                    adjustment = redis_used - db_used
+                    
+                    if adjustment != 0:
+                        await update_student_quota(session, student_id, adjustment)
+                        synced_count += 1
+                        logger.debug(
+                            f"Synced quota for {student_id}: DB {db_used} -> {redis_used} "
+                            f"(adjustment: {adjustment:+d})"
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to sync quota for {student_id}: {e}")
+                    # Re-add to pending for next sync
+                    async with self._sync_lock:
+                        if student_id not in self._pending_syncs:
+                            self._pending_syncs[student_id] = redis_used
         
         if synced_count > 0:
             logger.info(f"Synced quota for {synced_count} students to database")

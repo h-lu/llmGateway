@@ -9,6 +9,7 @@ import asyncio
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -18,6 +19,50 @@ from gateway.app.db.crud import get_all_rules as get_all_rules_async
 from gateway.app.db.models import Rule
 
 logger = get_logger(__name__)
+
+# Regex timeout to prevent ReDoS attacks (in seconds)
+REGEX_TIMEOUT_SECONDS = 1.0
+
+# Thread pool executor for running regex in separate threads with timeout
+_regex_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="regex_worker")
+
+
+def _regex_search_sync(pattern: re.Pattern, text: str) -> Optional[re.Match]:
+    """Synchronous regex search (runs in separate thread)."""
+    return pattern.search(text)
+
+
+async def _regex_search_with_timeout(pattern: re.Pattern, text: str, timeout: float = REGEX_TIMEOUT_SECONDS) -> Optional[re.Match]:
+    """Execute regex search with timeout protection against ReDoS.
+    
+    Uses asyncio timeout to prevent catastrophic backtracking from malicious
+    or poorly written regex patterns. Runs regex in a thread pool to allow
+    true cancellation.
+    
+    Args:
+        pattern: Compiled regex pattern
+        text: Text to search
+        timeout: Maximum time allowed for the search (seconds)
+        
+    Returns:
+        Match object if found, None if no match or timeout
+    """
+    try:
+        # Run regex in thread pool with timeout
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_regex_executor, _regex_search_sync, pattern, text),
+            timeout=timeout
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"Regex pattern timed out after {timeout}s: {pattern.pattern[:100]}..."
+        )
+        return None
+    except Exception as e:
+        logger.warning(f"Regex error: {e}")
+        return None
 
 
 @dataclass
@@ -161,7 +206,9 @@ class RuleService:
         Raises:
             Exception: If database connection fails
         """
-        return await get_all_rules_async(enabled_only=True)
+        from gateway.app.db.async_session import get_async_session
+        async with get_async_session() as session:
+            return await get_all_rules_async(session, enabled_only=True)
     
     def _load_rules_from_db_sync(self) -> List[Rule]:
         """Load enabled rules from database synchronously."""
@@ -347,6 +394,9 @@ class RuleService:
         2. Guide rules from database (if enabled for current week)
         3. Fallback to hardcoded rules if DB fails
         
+        Note: Sync version does not have regex timeout protection.
+        Use evaluate_prompt_async for production API calls with ReDoS protection.
+        
         Args:
             prompt: The user's prompt text
             week_number: Current academic week number
@@ -358,7 +408,7 @@ class RuleService:
         
         # If no DB rules, use hardcoded fallback
         if not rules:
-            return self._evaluate_hardcoded(prompt, week_number)
+            return self._evaluate_hardcoded_sync(prompt, week_number)
         
         # Process database rules
         # First, check block rules
@@ -404,7 +454,7 @@ class RuleService:
         
         # If no DB rules, use hardcoded fallback
         if not rules:
-            return self._evaluate_hardcoded(prompt, week_number)
+            return await self._evaluate_hardcoded_async(prompt, week_number)
         
         # Process database rules
         # First, check block rules
@@ -413,7 +463,8 @@ class RuleService:
                 continue
             if not is_week_in_range(week_number, rule.active_weeks):
                 continue
-            if rule.id in self._compiled_patterns and self._compiled_patterns[rule.id].search(prompt):
+            match = await _regex_search_with_timeout(self._compiled_patterns[rule.id], prompt)
+            if rule.id in self._compiled_patterns and match:
                 elapsed = time.perf_counter() - start_time
                 logger.debug(f"Rule evaluation took {elapsed:.4f}s (action=blocked, rule_id={rule.id})")
                 return RuleResult(
@@ -428,9 +479,8 @@ class RuleService:
                 continue
             if not is_week_in_range(week_number, rule.active_weeks):
                 continue
-            if rule.id in self._compiled_patterns and self._compiled_patterns[rule.id].search(prompt):
-                elapsed = time.perf_counter() - start_time
-                logger.debug(f"Rule evaluation took {elapsed:.4f}s (action=guided, rule_id={rule.id})")
+            match = await _regex_search_with_timeout(self._compiled_patterns[rule.id], prompt)
+            if rule.id in self._compiled_patterns and match:
                 return RuleResult(
                     action="guided",
                     message=rule.message,
@@ -441,11 +491,11 @@ class RuleService:
         logger.debug(f"Rule evaluation took {elapsed:.4f}s (action=passed)")
         return RuleResult(action="passed")
     
-    def _evaluate_hardcoded(self, prompt: str, week_number: int) -> RuleResult:
-        """Evaluate using hardcoded rules as fallback.
+    def _evaluate_hardcoded_sync(self, prompt: str, week_number: int) -> RuleResult:
+        """Evaluate using hardcoded rules as fallback (sync version).
         
         This maintains backward compatibility when database rules
-        are not available.
+        are not available. Sync version does not have timeout protection.
         """
         # Block patterns - active only in weeks 1-2 (original behavior)
         if week_number <= 2:
@@ -460,6 +510,34 @@ class RuleService:
         # Guide patterns - always active
         for pattern, message in GUIDE_PATTERNS:
             if re.search(pattern, prompt):
+                return RuleResult(
+                    action="guided",
+                    message=message,
+                    rule_id=f"hardcoded:{pattern}"
+                )
+        
+        return RuleResult(action="passed")
+    
+    async def _evaluate_hardcoded_async(self, prompt: str, week_number: int) -> RuleResult:
+        """Evaluate using hardcoded rules as fallback (async version with timeout).
+        
+        This version has ReDoS protection via regex timeout.
+        """
+        # Block patterns - active only in weeks 1-2 (original behavior)
+        if week_number <= 2:
+            for pattern, message in BLOCK_PATTERNS:
+                match = await _regex_search_with_timeout(re.compile(pattern), prompt)
+                if match:
+                    return RuleResult(
+                        action="blocked",
+                        message=message,
+                        rule_id=f"hardcoded:{pattern}"
+                    )
+        
+        # Guide patterns - always active
+        for pattern, message in GUIDE_PATTERNS:
+            match = await _regex_search_with_timeout(re.compile(pattern), prompt)
+            if match:
                 return RuleResult(
                     action="guided",
                     message=message,

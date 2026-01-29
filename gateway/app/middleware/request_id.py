@@ -16,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from gateway.app.core.tracing import (
     TraceContext,
     set_current_trace_context,
+    clear_current_trace_context,
 )
 
 
@@ -76,18 +77,22 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         
         # Store in request state and context variable
         request.state.trace_context = trace_context
-        set_current_trace_context(trace_context)
+        token = set_current_trace_context(trace_context)
         
-        # Process request
-        response = await call_next(request)
-        
-        # Add request ID to response headers
-        response.headers[self.header_name] = request_id
-        
-        # Add traceparent to response headers
-        response.headers[self.traceparent_header] = trace_context.to_traceparent()
-        
-        return response
+        try:
+            # Process request
+            response = await call_next(request)
+            
+            # Add request ID to response headers
+            response.headers[self.header_name] = request_id
+            
+            # Add traceparent to response headers
+            response.headers[self.traceparent_header] = trace_context.to_traceparent()
+            
+            return response
+        finally:
+            # Clear the context variable to prevent leaking to subsequent requests
+            clear_current_trace_context(token)
 
 
 def get_request_id(request: Request) -> str:

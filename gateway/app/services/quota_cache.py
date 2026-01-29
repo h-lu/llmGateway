@@ -223,8 +223,9 @@ class QuotaCacheService:
                 version=1,
             )
             await self.set_quota_state(new_state)
-        elif cached_state is not None and remaining <= 0:
-            # DB says no quota left, update cache to reflect this
+        else:
+            # Always invalidate/update cache on failure to prevent stale data
+            # This handles the case where cache shows sufficient quota but DB update fails
             new_state = QuotaCacheState(
                 student_id=student_id,
                 week_number=week_number,

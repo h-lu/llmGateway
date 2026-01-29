@@ -11,16 +11,22 @@ from gateway.app.db.models import Student
 def get_admin_token() -> str:
     """Get admin token from environment variable.
     
+    The token is cached on first access to avoid repeated environment
+    variable lookups and reduce timing attack window.
+    
     Raises:
         ValueError: If ADMIN_TOKEN environment variable is not set
     """
-    token = os.getenv("ADMIN_TOKEN")
-    if not token:
-        raise ValueError(
-            "ADMIN_TOKEN environment variable is not set. "
-            "Please set a secure admin token before starting the server."
-        )
-    return token
+    # Use a simple module-level cache
+    if not hasattr(get_admin_token, '_cached_token'):
+        token = os.getenv("ADMIN_TOKEN")
+        if not token:
+            raise ValueError(
+                "ADMIN_TOKEN environment variable is not set. "
+                "Please set a secure admin token before starting the server."
+            )
+        get_admin_token._cached_token = token
+    return get_admin_token._cached_token
 
 
 def require_admin(request: Request) -> str:

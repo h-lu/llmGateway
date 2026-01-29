@@ -11,6 +11,11 @@ try:
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False
+    import logging
+    logging.getLogger(__name__).warning(
+        "tiktoken not available. Token counting will use approximate character-based estimation. "
+        "Install with: pip install tiktoken"
+    )
 
 # Default encoding to use if tiktoken is available
 DEFAULT_ENCODING = "cl100k_base"  # Used by gpt-4, gpt-3.5-turbo, text-embedding-ada-002

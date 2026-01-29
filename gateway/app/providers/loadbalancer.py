@@ -4,8 +4,8 @@ This module provides load balancing functionality for distributing requests
 across multiple AI providers using different strategies.
 """
 
+import asyncio
 import random
-import threading
 from enum import Enum
 from typing import Dict, List, Optional, TYPE_CHECKING
 
@@ -70,7 +70,7 @@ class LoadBalancer:
         
         # Round-robin state
         self._rr_index = 0
-        self._rr_lock = threading.Lock()
+        self._rr_lock = asyncio.Lock()
     
     def register_provider(
         self, 
@@ -115,7 +115,7 @@ class LoadBalancer:
         # Unregister from health checker
         self._health_checker.unregister_provider(provider_name)
     
-    def get_provider(self) -> "BaseProvider":
+    async def get_provider(self) -> "BaseProvider":
         """Get the next provider based on the load balancing strategy.
         
         Returns:
@@ -129,11 +129,11 @@ class LoadBalancer:
         
         # Get available providers based on strategy
         if self._strategy == LoadBalanceStrategy.HEALTH_FIRST:
-            return self._get_health_first_provider()
+            return await self._get_health_first_provider()
         elif self._strategy == LoadBalanceStrategy.WEIGHTED:
             return self._get_weighted_provider()
         else:  # round_robin
-            return self._get_round_robin_provider()
+            return await self._get_round_robin_provider()
     
     def get_all_providers(self) -> List["BaseProvider"]:
         """Get all registered providers.
@@ -179,10 +179,11 @@ class LoadBalancer:
                 healthy.append((name, provider))
         return healthy
     
-    def _get_round_robin_provider(self) -> "BaseProvider":
+    async def _get_round_robin_provider(self) -> "BaseProvider":
         """Get provider using round-robin strategy.
         
-        Skips unhealthy providers if possible.
+        Skips unhealthy providers if possible. Uses atomic index update
+        within lock to prevent race conditions.
         
         Returns:
             The selected provider instance
@@ -192,14 +193,18 @@ class LoadBalancer:
         
         if healthy:
             # Use round-robin on healthy providers
-            with self._rr_lock:
+            # Atomic read-and-increment within lock to prevent race conditions
+            async with self._rr_lock:
                 index = self._rr_index % len(healthy)
-                self._rr_index = (self._rr_index + 1) % len(healthy)
+                self._rr_index = (self._rr_index + 1) % max(1, len(healthy))
             return healthy[index][1]
         
         # Fall back to all providers if no healthy ones
         providers_list = list(self._providers.items())
-        with self._rr_lock:
+        if not providers_list:
+            raise RuntimeError("No providers registered")
+        
+        async with self._rr_lock:
             index = self._rr_index % len(providers_list)
             self._rr_index = (self._rr_index + 1) % len(providers_list)
         return providers_list[index][1]
@@ -236,7 +241,7 @@ class LoadBalancer:
         # Fallback to last candidate (shouldn't reach here)
         return candidates[-1][1]
     
-    def _get_health_first_provider(self) -> "BaseProvider":
+    async def _get_health_first_provider(self) -> "BaseProvider":
         """Get provider prioritizing healthy ones.
         
         Uses round-robin among healthy providers. Raises error if no healthy providers.
@@ -253,7 +258,7 @@ class LoadBalancer:
             raise RuntimeError("No healthy providers available")
         
         # Round-robin among healthy providers
-        with self._rr_lock:
+        async with self._rr_lock:
             index = self._rr_index % len(healthy)
             self._rr_index = (self._rr_index + 1) % len(healthy)
         

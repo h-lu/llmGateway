@@ -61,10 +61,11 @@ async def update_student_quota(
     student_id: str, 
     tokens_used: int,
     auto_commit: bool = True
-) -> bool:
+) -> tuple[bool, int, int]:
     """Update student's used_quota by adding tokens_used.
     
-    Uses atomic UPDATE to avoid race conditions.
+    Uses atomic UPDATE with RETURNING to avoid race conditions and
+    return the actual updated values.
     
     Args:
         session: Database session from FastAPI dependency
@@ -74,17 +75,31 @@ async def update_student_quota(
                      if you want to control transaction boundaries manually.
         
     Returns:
-        True if updated successfully, False if student not found
+        Tuple of (success, remaining_quota, current_used)
+        - success: True if updated successfully
+        - remaining_quota: Remaining quota after update
+        - current_used: Current used quota after update
     """
-    # Use atomic UPDATE to avoid race conditions
+    # Use atomic UPDATE with RETURNING to avoid race conditions
     result = await session.execute(
         update(Student)
         .where(Student.id == student_id)
         .values(used_quota=Student.used_quota + tokens_used)
+        .returning(Student.used_quota, Student.current_week_quota)
     )
+    
+    row = result.fetchone()
+    
+    if row is None:
+        return False, 0, 0
+    
+    current_used, current_quota = row
+    remaining = current_quota - current_used
+    
     if auto_commit:
         await session.commit()
-    return result.rowcount > 0
+    
+    return True, remaining, current_used
 
 
 async def check_and_consume_quota(
@@ -96,8 +111,8 @@ async def check_and_consume_quota(
     """Atomically check if student has enough quota and consume it.
     
     This function performs a truly atomic check-and-set operation using a
-    single conditional UPDATE to prevent race conditions when multiple 
-    requests arrive simultaneously.
+    single conditional UPDATE with RETURNING to prevent race conditions
+    and get the actual updated values from the database.
     
     Args:
         session: Database session from FastAPI dependency
@@ -109,25 +124,11 @@ async def check_and_consume_quota(
     Returns:
         Tuple of (success, remaining_quota, current_used)
         - success: True if quota was sufficient and consumed
-        - remaining_quota: Remaining quota after operation (can be negative if overdrawn)
-        - current_used: Current used quota after operation
+        - remaining_quota: Remaining quota after operation
+        - current_used: Current used quota after operation (actual DB value)
     """
-    # First check if student exists and has sufficient quota
-    result = await session.execute(
-        select(Student).where(Student.id == student_id)
-    )
-    student = result.scalar_one_or_none()
-    
-    if student is None:
-        return False, 0, 0
-    
-    remaining = student.current_week_quota - student.used_quota
-    
-    if remaining <= 0:
-        return False, remaining, student.used_quota
-    
-    # Perform atomic conditional UPDATE
-    # Only update if student has enough quota (prevents race condition overages)
+    # Perform atomic conditional UPDATE with RETURNING
+    # This ensures we get the actual values after the update, preventing race conditions
     result = await session.execute(
         update(Student)
         .where(
@@ -135,24 +136,35 @@ async def check_and_consume_quota(
             Student.used_quota + tokens_needed <= Student.current_week_quota
         )
         .values(used_quota=Student.used_quota + tokens_needed)
+        .returning(Student.used_quota, Student.current_week_quota)
     )
+    
+    row = result.fetchone()
+    
+    if row is None:
+        # Update failed - either student doesn't exist or quota insufficient
+        # Fetch current values to return accurate information
+        result = await session.execute(
+            select(Student.used_quota, Student.current_week_quota).where(Student.id == student_id)
+        )
+        row = result.fetchone()
+        
+        if row is None:
+            # Student not found
+            return False, 0, 0
+        
+        current_used, current_quota = row
+        remaining = current_quota - current_used
+        return False, remaining, current_used
+    
+    # Success - get actual values from RETURNING clause
+    current_used, current_quota = row
+    remaining = current_quota - current_used
+    
     if auto_commit:
         await session.commit()
     
-    if result.rowcount == 0:
-        # Update failed - quota was insufficient (possibly due to concurrent request)
-        # Fetch updated values
-        result = await session.execute(
-            select(Student).where(Student.id == student_id)
-        )
-        student = result.scalar_one()
-        remaining = student.current_week_quota - student.used_quota
-        return False, remaining, student.used_quota
-    
-    # Success - calculate new values
-    new_used = student.used_quota + tokens_needed
-    new_remaining = student.current_week_quota - new_used
-    return True, new_remaining, new_used
+    return True, remaining, current_used
 
 
 async def list_students(session: AsyncSession) -> List[Student]:
