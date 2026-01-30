@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>TeachProxy 压力测试报告</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #2563eb;
+        }
+        .metric-label {
+            color: #666;
+            margin-top: 5px;
+        }
+        .success { color: #22c55e; }
+        .warning { color: #f59e0b; }
+        .error { color: #ef4444; }
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+        .config {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .config-item {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 TeachProxy 压力测试报告</h1>
+    <p>生成时间: 2026-01-30 10:21:39</p>
+    
+    <div class="config">
+        <h3>测试配置</h3>
+        <div class="config-item">并发用户数: <strong>50</strong></div>
+        <div class="config-item">测试时长: <strong>60 秒</strong></div>
+        <div class="config-item">基础 URL: <strong>http://localhost:8000</strong></div>
+        <div class="config-item">思考时间: <strong>1.0-5.0 秒</strong></div>
+    </div>
+    
+    <h2>📊 测试摘要</h2>
+    <div class="summary">
+        <div class="metric-card">
+            <div class="metric-value">902</div>
+            <div class="metric-label">总请求数</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value success">100.0%</div>
+            <div class="metric-label">成功率</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">15.0</div>
+            <div class="metric-label">平均 RPS</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">354ms</div>
+            <div class="metric-label">P50 延迟</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">770ms</div>
+            <div class="metric-label">P95 延迟</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-value">907ms</div>
+            <div class="metric-label">P99 延迟</div>
+        </div>
+    </div>
+    
+    <h2>📈 性能趋势</h2>
+    <div class="chart-container">
+        <canvas id="trendChart" height="100"></canvas>
+    </div>
+    
+    <h2>📋 请求类型统计</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>请求类型</th>
+                <th>请求数</th>
+                <th>成功率</th>
+                <th>平均延迟</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td>rule_triggered</td><td>100</td><td>100.0%</td><td>214.4ms</td></tr><tr><td>normal</td><td>619</td><td>100.0%</td><td>308.7ms</td></tr><tr><td>streaming</td><td>183</td><td>100.0%</td><td>668.1ms</td></tr>
+        </tbody>
+    </table>
+    
+    <h2>⚠️ 错误分布</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>错误类型</th>
+                <th>次数</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr><td colspan="2">无错误</td></tr>
+        </tbody>
+    </table>
+    
+    <script>
+        const snapshots = [{"time": 0, "rps": 17.62, "latency": 372.48, "active_users": 50}, {"time": 5, "rps": 14.4, "latency": 363.29, "active_users": 50}, {"time": 10, "rps": 15.4, "latency": 354.6, "active_users": 50}, {"time": 15, "rps": 14.2, "latency": 365.86, "active_users": 50}, {"time": 20, "rps": 12.4, "latency": 380.1, "active_users": 50}, {"time": 25, "rps": 15.2, "latency": 377.35, "active_users": 50}, {"time": 30, "rps": 14.2, "latency": 368.68, "active_users": 50}, {"time": 35, "rps": 14.4, "latency": 362.63, "active_users": 50}, {"time": 40, "rps": 14.8, "latency": 371.64, "active_users": 50}, {"time": 45, "rps": 15.6, "latency": 354.29, "active_users": 50}, {"time": 50, "rps": 15.0, "latency": 362.1, "active_users": 50}, {"time": 55, "rps": 14.4, "latency": 398.57, "active_users": 50}, {"time": 60, "rps": 1.8, "latency": 404.46, "active_users": 50}];
+        
+        new Chart(document.getElementById('trendChart'), {
+            type: 'line',
+            data: {
+                labels: snapshots.map(s => s.time + 's'),
+                datasets: [{
+                    label: 'RPS',
+                    data: snapshots.map(s => s.rps),
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    yAxisID: 'y'
+                }, {
+                    label: '延迟 (ms)',
+                    data: snapshots.map(s => s.latency),
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    yAxisID: 'y1'
+                }, {
+                    label: '活跃用户',
+                    data: snapshots.map(s => s.active_users),
+                    borderColor: '#22c55e',
+                    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                    yAxisID: 'y'
+                }]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'RPS / 用户数'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: '延迟 (ms)'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
