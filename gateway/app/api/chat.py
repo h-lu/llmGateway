@@ -4,6 +4,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 import httpx
+from pydantic import BaseModel, Field, field_validator
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -21,7 +22,7 @@ from gateway.app.middleware.request_id import get_request_id, get_traceparent
 from gateway.app.providers.base import BaseProvider
 from gateway.app.providers.factory import get_load_balancer
 from gateway.app.providers.loadbalancer import LoadBalancer
-from gateway.app.services.rule_service import evaluate_prompt
+from gateway.app.services.rule_service import evaluate_prompt_async
 from gateway.app.services.weekly_prompt_service import (
     get_weekly_prompt_service,
     inject_weekly_system_prompt,
@@ -35,6 +36,30 @@ from gateway.app.services.async_logger import (
 # Maximum failover attempts for provider failures (from configuration)
 MAX_FAILOVER_ATTEMPTS = settings.max_failover_attempts
 
+
+
+
+class ChatMessage(BaseModel):
+    """Message in a chat conversation."""
+    role: str = Field(..., pattern="^(system|user|assistant)$")
+    content: str = Field(..., min_length=1)
+
+
+class ChatRequest(BaseModel):
+    """Request model for chat completions with validation."""
+    messages: list[ChatMessage] = Field(..., min_length=1)
+    model: str = Field(default=settings.default_provider, min_length=1)
+    max_tokens: int = Field(default=2048, ge=1, le=32000)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    stream: bool = False
+    
+    @field_validator("messages")
+    @classmethod
+    def validate_messages(cls, v):
+        """Ensure messages list is not empty after validation."""
+        if not v:
+            raise ValueError("messages array cannot be empty")
+        return v
 
 def get_load_balancer_dependency() -> LoadBalancer:
     """Get the load balancer instance as a FastAPI dependency.
@@ -191,7 +216,7 @@ async def handle_streaming_response(
     token_counter = TokenCounter(model=model)
     
     async def stream_generator():
-        full_content = ""
+        full_content_parts: list[str] = []  # Use list for efficient concatenation
         prompt_tokens = count_message_tokens(payload.get("messages", []), model)
         completion_tokens = 0
         parse_errors = 0  # Track consecutive parse errors
@@ -235,7 +260,7 @@ async def handle_streaming_response(
                         delta = data.get("choices", [{}])[0].get("delta", {})
                         content = delta.get("content", "")
                         if content:
-                            full_content += content
+                            full_content_parts.append(content)
                             completion_tokens += token_counter.add_text(content)
                         
                         # Use provider-reported usage if available
@@ -322,6 +347,9 @@ async def handle_streaming_response(
         finally:
             # Calculate total tokens
             total_tokens = prompt_tokens + completion_tokens
+            
+            # Join content parts for logging
+            full_content = "".join(full_content_parts) if full_content_parts else ""
             
             logger.info(
                 "Stream completed",
@@ -504,21 +532,29 @@ async def chat_completions(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON in request body")
     
-    messages: List[Dict[str, str]] = body.get("messages", [])
-    if not messages:
-        raise HTTPException(status_code=400, detail="Messages array is required")
+    # Validate request using Pydantic model
+    try:
+        chat_request = ChatRequest(**body)
+    except Exception as validation_error:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "validation_error",
+                "message": str(validation_error)
+            }
+        )
     
-    prompt = messages[-1].get("content", "") if messages else ""
-    
-    # Get configuration from request
-    model = body.get("model", settings.default_provider)
-    max_tokens = body.get("max_tokens", 2048)
-    temperature = body.get("temperature", 0.7)
-    stream = body.get("stream", False)
+    # Extract validated values
+    messages = [{"role": m.role, "content": m.content} for m in chat_request.messages]
+    prompt = messages[-1]["content"] if messages else ""
+    model = chat_request.model
+    max_tokens = chat_request.max_tokens
+    temperature = chat_request.temperature
+    stream = chat_request.stream
     
     # Evaluate against rule engine
     week_number = get_current_week_number()
-    result = evaluate_prompt(prompt, week_number=week_number)
+    result = await evaluate_prompt_async(prompt, week_number=week_number)
     
     if result.action == "blocked":
         logger.info(
@@ -596,101 +632,116 @@ async def chat_completions(
     # Initialize provider with load balancer and failover support
     last_error = None
     
-    for attempt in range(MAX_FAILOVER_ATTEMPTS):
-        try:
-            provider = await load_balancer.get_provider()
-            provider_name = getattr(provider, '__class__', None)
-            if provider_name:
-                provider_name = provider_name.__name__
-            else:
-                provider_name = "unknown"
-            
-            logger.info(
-                f"Provider selected",
-                extra={
-                    "request_id": request_id,
-                    "provider": provider_name,
-                    "attempt": attempt + 1,
-                    "strategy": load_balancer.strategy.value
-                }
-            )
-            
-            # Get traceparent for distributed tracing
-            traceparent = get_traceparent(request)
-            
-            # Handle streaming vs non-streaming
-            if stream:
-                return await handle_streaming_response(
-                    provider, payload, student, prompt, result,
-                    week_number, max_tokens, request_id, model,
-                    background_tasks, async_logger, traceparent
-                )
-            else:
-                return await handle_non_streaming_response(
-                    provider, payload, student, prompt, result,
-                    week_number, max_tokens, request_id, model,
-                    background_tasks, async_logger, traceparent
-                )
-                
-        except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:
-            last_error = e
-            logger.warning(
-                f"Provider failed on attempt {attempt + 1}, trying failover",
-                extra={
-                    "request_id": request_id,
-                    "attempt": attempt + 1,
-                    "error": str(e),
-                    "error_type": type(e).__name__
-                }
-            )
-            # Mark provider as unhealthy for immediate failover
+    try:
+        for attempt in range(MAX_FAILOVER_ATTEMPTS):
             try:
+                provider = await load_balancer.get_provider()
                 provider_name = getattr(provider, '__class__', None)
                 if provider_name:
-                    provider_name = provider_name.__name__.lower().replace('provider', '')
-                    load_balancer._health_checker.mark_unhealthy(provider_name)
-            except Exception as mark_error:
-                # Log but don't fail if marking unhealthy fails
-                logger.debug(
-                    f"Failed to mark provider unhealthy: {mark_error}",
-                    extra={"request_id": request_id}
+                    provider_name = provider_name.__name__
+                else:
+                    provider_name = "unknown"
+                
+                logger.info(
+                    f"Provider selected",
+                    extra={
+                        "request_id": request_id,
+                        "provider": provider_name,
+                        "attempt": attempt + 1,
+                        "strategy": load_balancer.strategy.value
+                    }
                 )
-            continue
-        except RuntimeError as e:
-            # No providers available - distinguish between unconfigured and unhealthy
-            error_msg = str(e)
-            logger.error(f"No providers available: {e}", extra={"request_id": request_id})
-            
-            if "No providers registered" in error_msg:
-                detail = {
-                    "error": "service_unavailable",
-                    "message": "AI provider not configured. Please check provider settings."
-                }
-            elif "No healthy providers" in error_msg:
-                detail = {
-                    "error": "service_unavailable",
-                    "message": "All AI providers are currently unhealthy. Please try again later."
-                }
-            else:
-                detail = {
-                    "error": "service_unavailable",
-                    "message": "AI service temporarily unavailable. Please try again later."
-                }
-            raise HTTPException(status_code=503, detail=detail)
+                
+                # Get traceparent for distributed tracing
+                traceparent = get_traceparent(request)
+                
+                # Handle streaming vs non-streaming
+                if stream:
+                    return await handle_streaming_response(
+                        provider, payload, student, prompt, result,
+                        week_number, max_tokens, request_id, model,
+                        background_tasks, async_logger, traceparent
+                    )
+                else:
+                    return await handle_non_streaming_response(
+                        provider, payload, student, prompt, result,
+                        week_number, max_tokens, request_id, model,
+                        background_tasks, async_logger, traceparent
+                    )
+                    
+            except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.ConnectError) as e:
+                last_error = e
+                logger.warning(
+                    f"Provider failed on attempt {attempt + 1}, trying failover",
+                    extra={
+                        "request_id": request_id,
+                        "attempt": attempt + 1,
+                        "error": str(e),
+                        "error_type": type(e).__name__
+                    }
+                )
+                # Mark provider as unhealthy for immediate failover
+                try:
+                    provider_name = getattr(provider, '__class__', None)
+                    if provider_name:
+                        provider_name = provider_name.__name__.lower().replace('provider', '')
+                        load_balancer._health_checker.mark_unhealthy(provider_name)
+                except Exception as mark_error:
+                    # Log but don't fail if marking unhealthy fails
+                    logger.debug(
+                        f"Failed to mark provider unhealthy: {mark_error}",
+                        extra={"request_id": request_id}
+                    )
+                continue
+            except RuntimeError as e:
+                # No providers available - distinguish between unconfigured and unhealthy
+                error_msg = str(e)
+                logger.error(f"No providers available: {e}", extra={"request_id": request_id})
+                
+                if "No providers registered" in error_msg:
+                    detail = {
+                        "error": "service_unavailable",
+                        "message": "AI provider not configured. Please check provider settings."
+                    }
+                elif "No healthy providers" in error_msg:
+                    detail = {
+                        "error": "service_unavailable",
+                        "message": "All AI providers are currently unhealthy. Please try again later."
+                    }
+                else:
+                    detail = {
+                        "error": "service_unavailable",
+                        "message": "AI service temporarily unavailable. Please try again later."
+                    }
+                raise HTTPException(status_code=503, detail=detail)
+        
+        # All failover attempts exhausted
+        logger.error(
+            f"All providers failed after {MAX_FAILOVER_ATTEMPTS} attempts",
+            extra={
+                "request_id": request_id,
+                "last_error": str(last_error),
+                "error_type": type(last_error).__name__ if last_error else None
+            }
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "service_unavailable",
+                "message": "All AI providers are unavailable. Please try again later."
+            }
+        )
     
-    # All failover attempts exhausted
-    logger.error(
-        f"All providers failed after {MAX_FAILOVER_ATTEMPTS} attempts",
-        extra={
-            "request_id": request_id,
-            "last_error": str(last_error),
-            "error_type": type(last_error).__name__ if last_error else None
-        }
-    )
-    raise HTTPException(
-        status_code=503,
-        detail={
-            "error": "service_unavailable",
-            "message": "All AI providers are unavailable. Please try again later."
-        }
-    )
+    except HTTPException as e:
+        # Release reserved quota on provider failure
+        if e.status_code == 503:
+            quota_service = get_quota_cache_service()
+            released = await quota_service.release_quota(
+                student.id, max_tokens, week_number, session
+            )
+            if released:
+                logger.info(
+                    f"Released {max_tokens} reserved tokens after provider failure",
+                    extra={"request_id": request_id, "student_id": student.id}
+                )
+        raise

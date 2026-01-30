@@ -168,7 +168,8 @@ class TestLoadBalancerUnregister:
 class TestRoundRobinStrategy:
     """Test round-robin load balancing strategy."""
     
-    def test_round_robin_single_provider(self):
+    @pytest.mark.asyncio
+    async def test_round_robin_single_provider(self):
         """Test round-robin with single provider."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -179,10 +180,11 @@ class TestRoundRobinStrategy:
         lb.register_provider(provider)
         
         # Should always return the same provider
-        assert lb.get_provider() is provider
-        assert lb.get_provider() is provider
+        assert await lb.get_provider() is provider
+        assert await lb.get_provider() is provider
     
-    def test_round_robin_multiple_providers(self):
+    @pytest.mark.asyncio
+    async def test_round_robin_multiple_providers(self):
         """Test round-robin cycles through providers."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -195,13 +197,14 @@ class TestRoundRobinStrategy:
         lb.register_provider(provider2, name="p2")
         
         # Should cycle through providers
-        results = [lb.get_provider() for _ in range(4)]
+        results = [await lb.get_provider() for _ in range(4)]
         assert results[0] is provider1
         assert results[1] is provider2
         assert results[2] is provider1  # Cycles back
         assert results[3] is provider2
     
-    def test_round_robin_skips_unhealthy(self):
+    @pytest.mark.asyncio
+    async def test_round_robin_skips_unhealthy(self):
         """Test round-robin skips unhealthy providers."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -216,9 +219,10 @@ class TestRoundRobinStrategy:
         
         # Should only return the healthy provider
         for _ in range(5):
-            assert lb.get_provider() is provider2
+            assert await lb.get_provider() is provider2
     
-    def test_round_robin_fallback_when_all_unhealthy(self):
+    @pytest.mark.asyncio
+    async def test_round_robin_fallback_when_all_unhealthy(self):
         """Test round-robin falls back to all providers when none are healthy."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -231,7 +235,7 @@ class TestRoundRobinStrategy:
         lb.register_provider(provider2, name="p2")
         
         # Should cycle through all providers when none are healthy
-        results = [lb.get_provider() for _ in range(4)]
+        results = [await lb.get_provider() for _ in range(4)]
         assert results[0] is provider1
         assert results[1] is provider2
         assert results[2] is provider1
@@ -241,7 +245,8 @@ class TestRoundRobinStrategy:
 class TestWeightedStrategy:
     """Test weighted load balancing strategy."""
     
-    def test_weighted_selection(self):
+    @pytest.mark.asyncio
+    async def test_weighted_selection(self):
         """Test weighted selection favors higher weights."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -256,14 +261,15 @@ class TestWeightedStrategy:
         # Collect many samples to verify distribution
         results = {provider1: 0, provider2: 0}
         for _ in range(1000):
-            p = lb.get_provider()
+            p = await lb.get_provider()
             results[p] += 1
         
         # Heavy provider should be selected ~75% of the time (3:1 ratio)
         heavy_ratio = results[provider1] / sum(results.values())
         assert 0.65 < heavy_ratio < 0.85, f"Heavy provider ratio was {heavy_ratio}"
     
-    def test_weighted_skips_unhealthy(self):
+    @pytest.mark.asyncio
+    async def test_weighted_skips_unhealthy(self):
         """Test weighted skips unhealthy providers."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -277,9 +283,10 @@ class TestWeightedStrategy:
         
         # Should always return the healthy provider
         for _ in range(10):
-            assert lb.get_provider() is provider2
+            assert await lb.get_provider() is provider2
     
-    def test_weighted_fallback_when_all_unhealthy(self):
+    @pytest.mark.asyncio
+    async def test_weighted_fallback_when_all_unhealthy(self):
         """Test weighted falls back to all providers when none are healthy."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -294,7 +301,7 @@ class TestWeightedStrategy:
         # Should still return providers even when all are unhealthy
         results = set()
         for _ in range(20):
-            results.add(lb.get_provider())
+            results.add(await lb.get_provider())
         
         assert provider1 in results
         assert provider2 in results
@@ -303,7 +310,8 @@ class TestWeightedStrategy:
 class TestHealthFirstStrategy:
     """Test health-first load balancing strategy."""
     
-    def test_health_first_round_robin(self):
+    @pytest.mark.asyncio
+    async def test_health_first_round_robin(self):
         """Test health-first uses round-robin among healthy providers."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -316,13 +324,14 @@ class TestHealthFirstStrategy:
         lb.register_provider(provider2, name="p2")
         
         # Should cycle through healthy providers
-        results = [lb.get_provider() for _ in range(4)]
+        results = [await lb.get_provider() for _ in range(4)]
         assert results[0] is provider1
         assert results[1] is provider2
         assert results[2] is provider1
         assert results[3] is provider2
     
-    def test_health_first_skips_unhealthy(self):
+    @pytest.mark.asyncio
+    async def test_health_first_skips_unhealthy(self):
         """Test health-first skips unhealthy providers."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -336,9 +345,10 @@ class TestHealthFirstStrategy:
         
         # Should only return healthy providers
         for _ in range(5):
-            assert lb.get_provider() is provider2
+            assert await lb.get_provider() is provider2
     
-    def test_health_first_error_when_no_healthy(self):
+    @pytest.mark.asyncio
+    async def test_health_first_error_when_no_healthy(self):
         """Test health-first raises error when no healthy providers."""
         factory = MagicMock()
         health_checker = MagicMock()
@@ -349,20 +359,21 @@ class TestHealthFirstStrategy:
         lb.register_provider(provider)
         
         with pytest.raises(RuntimeError, match="No healthy providers available"):
-            lb.get_provider()
+            await lb.get_provider()
 
 
 class TestGetProviderErrors:
     """Test error handling in get_provider."""
     
-    def test_get_provider_no_providers(self):
+    @pytest.mark.asyncio
+    async def test_get_provider_no_providers(self):
         """Test get_provider raises error when no providers registered."""
         factory = MagicMock()
         health_checker = MagicMock()
         lb = LoadBalancer(factory, health_checker)
         
         with pytest.raises(RuntimeError, match="No providers registered"):
-            lb.get_provider()
+            await lb.get_provider()
 
 
 class TestGetAllProviders:
@@ -506,13 +517,12 @@ class TestHealthyCount:
         assert lb.healthy_count == 0
 
 
-class TestThreadSafety:
-    """Test thread safety of load balancer."""
+class TestAsyncConcurrency:
+    """Test async concurrency safety of load balancer."""
     
-    def test_round_robin_thread_safety(self):
-        """Test round-robin is thread-safe with concurrent access."""
-        import threading
-        
+    @pytest.mark.asyncio
+    async def test_round_robin_async_concurrency(self):
+        """Test round-robin is safe with concurrent async access."""
         factory = MagicMock()
         health_checker = MagicMock()
         health_checker.is_healthy.return_value = True
@@ -525,16 +535,13 @@ class TestThreadSafety:
         
         results = []
         
-        def get_providers():
+        async def get_providers():
             for _ in range(100):
-                results.append(lb.get_provider())
+                results.append(await lb.get_provider())
         
-        # Run multiple threads concurrently
-        threads = [threading.Thread(target=get_providers) for _ in range(5)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        # Run multiple concurrent tasks
+        tasks = [get_providers() for _ in range(5)]
+        await asyncio.gather(*tasks)
         
         # Should have collected all results without errors
         assert len(results) == 500

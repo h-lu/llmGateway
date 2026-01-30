@@ -7,4 +7,11 @@ def test_health():
     client = TestClient(app)
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    data = resp.json()
+    # Enhanced health check has status and components
+    assert "status" in data
+    assert "components" in data
+    # Should have database, cache, and providers components
+    assert "database" in data["components"]
+    assert "cache" in data["components"]
+    assert "providers" in data["components"]

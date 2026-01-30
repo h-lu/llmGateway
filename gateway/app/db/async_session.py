@@ -69,6 +69,7 @@ def get_async_engine(database_url: str | None = None):
                 echo=False,
                 future=True,
                 poolclass=StaticPool,
+                pool_pre_ping=True,  # Validate connections before use
                 connect_args={
                     "check_same_thread": False,
                     "timeout": 30.0,  # Connection timeout
@@ -114,6 +115,7 @@ def get_async_engine(database_url: str | None = None):
                 max_overflow=max_overflow,
                 pool_timeout=pool_timeout,
                 pool_recycle=pool_recycle,
+                pool_pre_ping=True,  # Validate connections before use
             )
     return _async_engine
 

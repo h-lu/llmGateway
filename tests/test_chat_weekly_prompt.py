@@ -10,7 +10,7 @@ class TestChatWeeklyPromptIntegration:
     """Test weekly system prompt integration in chat API."""
     
     @pytest.mark.asyncio
-    @patch("gateway.app.api.chat.evaluate_prompt")
+    @patch("gateway.app.api.chat.evaluate_prompt_async")
     @patch("gateway.app.api.chat.get_current_week_number")
     @patch("gateway.app.api.chat.get_weekly_prompt_service")
     async def test_chat_uses_weekly_system_prompt(
@@ -22,13 +22,15 @@ class TestChatWeeklyPromptIntegration:
         """Test that chat API injects weekly system prompt."""
         # Setup mocks
         mock_get_week.return_value = 1
-        
+
         # Mock rule evaluation - passed
         mock_result = MagicMock()
         mock_result.action = "passed"
         mock_result.rule_id = None
         mock_result.message = None
         mock_evaluate.return_value = mock_result
+        # Since it's async now, need to make it async
+        mock_evaluate = AsyncMock(return_value=mock_result)
         
         # Mock weekly prompt service
         mock_service = MagicMock()
@@ -60,7 +62,7 @@ class TestChatWeeklyPromptIntegration:
         assert result[1]["content"] == "什么是变量？"
     
     @pytest.mark.asyncio
-    @patch("gateway.app.api.chat.evaluate_prompt")
+    @patch("gateway.app.api.chat.evaluate_prompt_async")
     @patch("gateway.app.api.chat.get_current_week_number")
     @patch("gateway.app.api.chat.get_weekly_prompt_service")
     async def test_chat_no_weekly_prompt_uses_original(
@@ -71,10 +73,10 @@ class TestChatWeeklyPromptIntegration:
     ):
         """Test that original messages are used when no weekly prompt configured."""
         mock_get_week.return_value = 99  # Week with no prompt
-        
+
         mock_result = MagicMock()
         mock_result.action = "passed"
-        mock_evaluate.return_value = mock_result
+        mock_evaluate = AsyncMock(return_value=mock_result)
         
         # No weekly prompt configured
         mock_service = MagicMock()
@@ -97,7 +99,7 @@ class TestChatWeeklyPromptIntegration:
         assert len(result) == 2
     
     @pytest.mark.asyncio
-    @patch("gateway.app.api.chat.evaluate_prompt")
+    @patch("gateway.app.api.chat.evaluate_prompt_async")
     @patch("gateway.app.api.chat.get_current_week_number")
     async def test_chat_blocked_rule_takes_precedence(
         self,
@@ -106,13 +108,13 @@ class TestChatWeeklyPromptIntegration:
     ):
         """Test that blocked rules still work with weekly prompt feature."""
         mock_get_week.return_value = 1
-        
+
         # Rule blocks the request
         mock_result = MagicMock()
         mock_result.action = "blocked"
         mock_result.rule_id = "rule:direct_answer"
         mock_result.message = "检测到直接要答案，请先自己思考"
-        mock_evaluate.return_value = mock_result
+        mock_evaluate = AsyncMock(return_value=mock_result)
         
         # Test that evaluate_prompt returns blocked result
         assert mock_result.action == "blocked"

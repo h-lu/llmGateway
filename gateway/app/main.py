@@ -42,15 +42,22 @@ def create_app() -> FastAPI:
         async with init_http_client() as http_client:
             # Initialize async database (create tables)
             await init_async_db()
-            
+
+            # Warm rules cache on startup to prevent cache stampede on first request
+            from gateway.app.services.rule_service import get_rule_service
+            rule_service = get_rule_service()
+            rules = await rule_service.get_rules_async()
+            logger.info(f"Rules cache warmed: {len(rules)} rules loaded")
+
             # Start provider health checker
             health_checker = get_health_checker()
             await health_checker.start()
-            
+
             logger.info(
                 "Application startup complete",
                 extra={
                     "providers": health_checker.get_all_status(),
+                    "rules_loaded": len(rules),
                     "debug_mode": settings.debug
                 }
             )
@@ -86,6 +93,10 @@ def create_app() -> FastAPI:
     from gateway.app.middleware.request_size import RequestSizeLimitMiddleware
     app.add_middleware(RequestSizeLimitMiddleware, max_body_size=10 * 1024 * 1024)  # 10MB limit
     
+    # Response compression middleware (compress responses > 1KB)
+    from fastapi.middleware.gzip import GZipMiddleware
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+    
     # Metrics middleware - collects request metrics
     app.add_middleware(MetricsMiddleware)
     
@@ -106,9 +117,82 @@ def create_app() -> FastAPI:
     app.include_router(weekly_prompts_router)
     
     @app.get("/health")
-    def health() -> dict[str, str]:
-        """Health check endpoint."""
-        return {"status": "ok"}
+    async def health() -> dict[str, Any]:
+        """Enhanced health check endpoint with database, cache, and provider status."""
+        health_status = {
+            "status": "ok",
+            "components": {}
+        }
+
+        # Check database health
+        try:
+            from gateway.app.db.async_session import get_async_engine
+            from sqlalchemy import text
+
+            engine = get_async_engine()
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            health_status["components"]["database"] = {"status": "ok"}
+        except Exception as e:
+            health_status["status"] = "degraded"
+            health_status["components"]["database"] = {
+                "status": "error",
+                "error": str(e)[:100]  # Truncate for security
+            }
+
+        # Check cache health
+        try:
+            from gateway.app.core.cache import get_cache
+            cache = get_cache()
+
+            # Try a simple cache operation to verify connectivity
+            test_key = "_health_check_test"
+            await cache.set(test_key, b"ping", ttl=5)
+            value = await cache.get(test_key)
+            await cache.delete(test_key)
+
+            if value == b"ping":
+                cache_type = "redis" if cache.__class__.__name__ == "RedisCache" else "memory"
+                health_status["components"]["cache"] = {
+                    "status": "ok",
+                    "type": cache_type
+                }
+            else:
+                health_status["status"] = "degraded"
+                health_status["components"]["cache"] = {"status": "error", "error": "Unexpected value"}
+        except Exception as e:
+            health_status["status"] = "degraded"
+            health_status["components"]["cache"] = {
+                "status": "error",
+                "error": str(e)[:100]
+            }
+
+        # Check provider health
+        try:
+            health_checker = get_health_checker()
+            provider_status = health_checker.get_all_status()
+
+            # Count healthy vs unhealthy providers
+            healthy_count = sum(1 for v in provider_status.values() if v)
+            total_count = len(provider_status)
+
+            if total_count > 0 and healthy_count == 0:
+                health_status["status"] = "degraded"
+
+            health_status["components"]["providers"] = {
+                "status": "ok" if healthy_count == total_count else "degraded",
+                "healthy": healthy_count,
+                "total": total_count,
+                "details": provider_status
+            }
+        except Exception as e:
+            health_status["status"] = "degraded"
+            health_status["components"]["providers"] = {
+                "status": "error",
+                "error": str(e)[:100]
+            }
+
+        return health_status
     
     @app.get("/v1/models")
     async def list_models() -> dict[str, Any]:

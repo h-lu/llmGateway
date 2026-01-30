@@ -6,6 +6,7 @@ to improve database performance by buffering logs and writing in bulk.
 
 import asyncio
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,9 @@ from gateway.app.db.models import Conversation
 logger = get_logger(__name__)
 
 # Dead letter queue file path for failed logs
-DEAD_LETTER_QUEUE_PATH = Path("/tmp/gateway_failed_logs.jsonl")
+DEAD_LETTER_QUEUE_PATH = Path(
+    os.getenv("DEAD_LETTER_QUEUE_PATH", "/tmp/gateway_failed_logs.jsonl")
+)
 
 
 @dataclass
@@ -118,22 +121,22 @@ timeout period.
         
         Flushes any remaining logs in the buffer before returning.
         This should be called during application shutdown.
+        
+        Note: Always flushes the buffer even if not explicitly started,
+        to handle edge cases where logs were buffered but start() was never called.
         """
-        if not self._started:
-            return
-            
         logger.debug("AsyncConversationLogger shutting down...")
         self._shutdown_event.set()
         
-        # Cancel the flush loop
-        if self._flush_task:
+        # Cancel the flush loop if it was started
+        if self._started and self._flush_task:
             self._flush_task.cancel()
             try:
                 await self._flush_task
             except asyncio.CancelledError:
                 pass
         
-        # Final flush of remaining logs
+        # Final flush of remaining logs - always do this even if not started
         await self._flush_buffer()
         
         self._started = False

@@ -248,9 +248,9 @@ def reset_metrics_collector() -> None:
 
 
 @router.get("/metrics", response_class=PlainTextResponse)
-async def prometheus_metrics() -> PlainTextResponse:
-    """Prometheus-compatible metrics endpoint.
-    
+async def prometheus_metrics(admin=Depends(require_admin)) -> PlainTextResponse:
+    """Prometheus-compatible metrics endpoint (admin only).
+
     Returns:
         Plain text response with Prometheus-formatted metrics
     """
@@ -260,37 +260,6 @@ async def prometheus_metrics() -> PlainTextResponse:
         content=content,
         media_type="text/plain; version=0.0.4; charset=utf-8"
     )
-
-
-@router.get("/health")
-async def health_check() -> dict[str, Any]:
-    """Health check endpoint.
-    
-    Returns:
-        JSON response with health status
-    """
-    collector = get_metrics_collector()
-    summary = await collector.get_summary()
-    
-    # Determine overall health
-    providers = summary.get("providers", {})
-    healthy_providers = [p for p, data in providers.items() if data.get("healthy", False)]
-    
-    if not providers:
-        status = "unknown"
-    elif healthy_providers:
-        status = "healthy"
-    else:
-        status = "unhealthy"
-    
-    return {
-        "status": status,
-        "uptime_seconds": summary["uptime_seconds"],
-        "providers": {
-            name: "healthy" if data.get("healthy", False) else "unhealthy"
-            for name, data in providers.items()
-        }
-    }
 
 
 @router.get("/stats")

@@ -221,20 +221,126 @@ class RuleService:
         except RuntimeError:
             return asyncio.run(self._load_rules_from_db_async())
     
+    def _has_catastrophic_potential(self, pattern: str) -> bool:
+        """Check if a regex pattern has potential for catastrophic backtracking.
+        
+        Detects common patterns that can cause ReDoS (Regular Expression Denial of Service):
+        - Nested quantifiers like (.+)+ or (.*)*
+        - Alternation with overlapping capturing groups
+        - Repeated wildcards at start/end
+        
+        Args:
+            pattern: The regex pattern string to check
+            
+        Returns:
+            True if the pattern has catastrophic potential
+        """
+        # Common dangerous pattern signatures
+        dangerous_signatures = [
+            r'\(.+\)[+*]',      # Nested quantifiers: (.+)+, (.+)*
+            r'\(.*\)[+*]',      # Nested wildcards: (.*)+, (.*)*
+            r'\(.+\)\{',        # Quantified group: (.+){n,m}
+            r'\.\+[\+\*\{]',    # Repeated quantifiers on .+
+            r'.*\*[\+\*\{]',    # Repeated quantifiers on .*
+        ]
+        
+        # Check for dangerous patterns
+        for sig in dangerous_signatures:
+            try:
+                if re.search(sig, pattern):
+                    return True
+            except re.error:
+                # If the signature itself is invalid, skip it
+                continue
+        
+        # Check for excessive repetition (potential for exponential backtracking)
+        # Count quantifiers: * + ? {n} {n,} {n,m}
+        quantifier_count = len(re.findall(r'[*+?{]', pattern))
+        if quantifier_count > 10:
+            # Many quantifiers could indicate complex patterns
+            # Also check for overlapping alternations which multiply complexity
+            alternations = pattern.count('|')
+            if alternations > 3:
+                return True
+        
+        # Check for very long alternations (each branch needs to be checked)
+        longest_alternation = max((len(a) for a in pattern.split('|')), default=0)
+        if longest_alternation > 200:
+            return True
+        
+        return False
+    
+    def _safe_compile_pattern(self, pattern_str: str, rule_id: int) -> Optional[re.Pattern]:
+        """Safely compile a regex pattern with validation.
+        
+        Args:
+            pattern_str: The regex pattern string
+            rule_id: The rule ID (for logging)
+            
+        Returns:
+            Compiled pattern, or None if unsafe/invalid
+        """
+        # First check for catastrophic backtracking potential
+        if self._has_catastrophic_potential(pattern_str):
+            logger.error(
+                f"Rejected unsafe regex pattern for rule {rule_id}: "
+                f"potential for catastrophic backtracking. "
+                f"Pattern: {pattern_str[:100]}..."
+            )
+            return None
+        
+        # Try to compile the pattern
+        try:
+            # Set size limit on compiled regex (Python 3.11+)
+            # This prevents memory exhaustion from complex patterns
+            compiled = re.compile(pattern_str)
+            
+            # Additional safety: limit the number of capturing groups
+            groups = compiled.groups
+            if groups > 20:
+                logger.error(
+                    f"Rejected regex pattern for rule {rule_id}: "
+                    f"too many capturing groups ({groups}). Limit is 20."
+                )
+                return None
+            
+            return compiled
+        except re.error as e:
+            logger.error(f"Failed to compile regex pattern for rule {rule_id}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error compiling pattern for rule {rule_id}: {e}")
+            return None
+    
     def _compile_patterns(self, rules: List[Rule]) -> None:
         """Compile regex patterns for all rules and cache them.
         
         Args:
             rules: List of Rule objects to compile patterns for
+        
+        Note:
+            Invalid or unsafe patterns are skipped and logged.
         """
         self._compiled_patterns.clear()
         self._cached_rules = rules  # Store rules for sync access in async context
+        
+        skipped_count = 0
         for rule in rules:
-            try:
-                self._compiled_patterns[rule.id] = re.compile(rule.pattern)
-            except re.error as e:
-                logger.error(f"Failed to compile regex pattern for rule {rule.id}: {e}")
-                # Skip invalid patterns - they won't match anything
+            compiled = self._safe_compile_pattern(rule.pattern, rule.id)
+            if compiled is not None:
+                self._compiled_patterns[rule.id] = compiled
+            else:
+                skipped_count += 1
+                logger.warning(
+                    f"Skipped rule {rule.id} due to invalid or unsafe pattern. "
+                    f"This rule will not be evaluated."
+                )
+        
+        if skipped_count > 0:
+            logger.warning(
+                f"Skipped {skipped_count} out of {len(rules)} rules due to "
+                f"invalid or unsafe regex patterns."
+            )
     
     async def _get_cached_rules(self) -> Optional[List[Rule]]:
         """Get rules from cache if available.

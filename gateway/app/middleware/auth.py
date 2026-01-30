@@ -44,13 +44,19 @@ def require_admin(request: Request) -> str:
     token = get_bearer_token(request)
     expected_token = get_admin_token()
     
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing admin token")
+    # Use empty string if token is None to prevent timing differences
+    # Always perform comparison to prevent enumeration via timing analysis
+    if token is None:
+        token = ""
     
     # Use constant-time comparison to prevent timing attacks
     import hmac
     if not hmac.compare_digest(token, expected_token):
-        raise HTTPException(status_code=401, detail="Invalid admin token")
+        # Use consistent error message to prevent token enumeration
+        raise HTTPException(
+            status_code=401, 
+            detail="Invalid or missing admin token"
+        )
     
     return "admin"
 

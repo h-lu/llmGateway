@@ -1,6 +1,7 @@
 """Tests for the async batch logger."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,6 +36,28 @@ def background_tasks():
     tasks = MagicMock(spec=BackgroundTasks)
     tasks.add_task = MagicMock()
     return tasks
+
+
+@pytest.fixture
+def mock_session():
+    """Create a mock async session for testing."""
+    session = AsyncMock()
+    session.commit = AsyncMock()
+    session.refresh = AsyncMock()
+    session.close = AsyncMock()
+    session.rollback = AsyncMock()
+    return session
+
+
+@pytest.fixture
+def mock_get_async_session(mock_session):
+    """Mock the get_async_session context manager."""
+    @asynccontextmanager
+    async def _mock_session():
+        yield mock_session
+    
+    with patch("gateway.app.services.async_logger.get_async_session", _mock_session):
+        yield _mock_session
 
 
 @pytest.mark.asyncio
@@ -101,7 +124,7 @@ async def test_buffer_flush_on_size():
 
 
 @pytest.mark.asyncio
-async def test_batch_log_with_retry_success():
+async def test_batch_log_with_retry_success(mock_get_async_session):
     """Test successful batch logging."""
     logger = AsyncConversationLogger()
     
@@ -129,13 +152,13 @@ async def test_batch_log_with_retry_success():
             
             # Verify bulk save was called
             mock_save.assert_called_once()
-            assert len(mock_save.call_args[0][0]) == 3  # 3 conversations
+            assert len(mock_save.call_args[0][1]) == 3  # 3 conversations (session is first arg)
             # Quota adjustment should be called since tokens_used != max_tokens
             mock_quota.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_batch_log_with_quota_adjustments():
+async def test_batch_log_with_quota_adjustments(mock_get_async_session):
     """Test batch logging with quota adjustments."""
     logger = AsyncConversationLogger()
     
@@ -177,7 +200,7 @@ async def test_batch_log_with_quota_adjustments():
             # Verify quota update was called with combined adjustments
             mock_quota.assert_called_once()
             # Check the adjustment dict (5-10=-5 + 15-10=+5 = 0 total for student-1)
-            adjustments = mock_quota.call_args[0][0]
+            adjustments = mock_quota.call_args[0][1]  # session is first arg
             assert "student-1" in adjustments
             assert adjustments["student-1"] == 0  # -5 + 5 = 0
 
@@ -241,7 +264,7 @@ async def test_global_logger_instance():
 
 
 @pytest.mark.asyncio
-async def test_batch_retry_failure():
+async def test_batch_retry_failure(mock_get_async_session):
     """Test that batch logging retries on failure."""
     logger = AsyncConversationLogger(max_retries=2, retry_delay=0.01)
     

@@ -19,6 +19,7 @@ from typing import Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from unittest.mock import patch
 
 # Import the service under test
 from gateway.app.services.distributed_quota import (
@@ -42,6 +43,23 @@ def reset_globals():
     yield
     reset_distributed_quota_service()
     reset_cache()
+
+
+@pytest.fixture
+def mock_get_async_session():
+    """Mock the get_async_session to avoid database dependency."""
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+    
+    mock_session = AsyncMock()
+    
+    @asynccontextmanager
+    async def _mock_session():
+        yield mock_session
+    
+    # Patch at the module level where it's imported
+    with patch("gateway.app.db.async_session.get_async_session", _mock_session):
+        yield mock_session
 
 
 @pytest.fixture
@@ -302,7 +320,10 @@ class TestDistributedQuotaServiceRedis:
         assert state is not None
         assert state.source == "db"
         assert state.used_quota == 100
-        mock_get_student.assert_called_once_with("test_student")
+        # Verify the mock was called with session as first argument
+        mock_get_student.assert_called_once()
+        call_args = mock_get_student.call_args
+        assert call_args[0][1] == "test_student"  # First arg is session, second is student_id
     
     @pytest.mark.asyncio
     @patch("gateway.app.services.distributed_quota.get_student_by_id")
@@ -385,7 +406,11 @@ class TestDistributedQuotaServiceFallback:
         assert success is True
         assert remaining == 800
         assert used == 200
-        mock_check_consume.assert_called_once_with("test_student", 200)
+        # Verify mock was called with session as first argument
+        mock_check_consume.assert_called_once()
+        call_args = mock_check_consume.call_args
+        assert call_args[0][1] == "test_student"  # First arg is session, second is student_id
+        assert call_args[0][2] == 200  # Third arg is tokens_needed
 
 
 # ============================================================================
@@ -420,7 +445,11 @@ class TestDistributedQuotaServiceSync:
         
         assert synced == 1
         # Should update DB with adjustment of +400
-        mock_update_quota.assert_called_once_with("test_student", 400)
+        # Verify mock was called with session as first argument
+        mock_update_quota.assert_called_once()
+        call_args = mock_update_quota.call_args
+        assert call_args[0][1] == "test_student"  # First arg is session, second is student_id
+        assert call_args[0][2] == 400  # Third arg is adjustment
     
     @pytest.mark.asyncio
     @patch("gateway.app.services.distributed_quota.get_student_by_id")
@@ -442,7 +471,7 @@ class TestDistributedQuotaServiceSync:
             "student1": MagicMock(id="student1", used_quota=100, current_week_quota=1000),
             "student2": MagicMock(id="student2", used_quota=200, current_week_quota=1000),
         }
-        mock_get_student.side_effect = lambda sid: students.get(sid)
+        mock_get_student.side_effect = lambda session, sid: students.get(sid)
         
         # Add pending syncs
         self.service._pending_syncs["student1"] = 500  # +400 adjustment

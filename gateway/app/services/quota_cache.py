@@ -4,6 +4,7 @@ Provides caching for student quota state to reduce database load.
 Uses 30-second TTL and optimistic locking for updates.
 """
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -64,6 +65,7 @@ class QuotaCacheService:
     - 30-second TTL caching of quota state
     - Optimistic locking for concurrent updates
     - Fallback to database on cache miss or insufficient quota
+    - Single-flight pattern to prevent cache stampede
     
     Cache key format: quota:{student_id}:{week_number}
     """
@@ -78,6 +80,9 @@ class QuotaCacheService:
             cache: Cache backend to use. If None, uses global cache instance.
         """
         self._cache = cache
+        # Per-student locks to prevent cache stampede (single-flight pattern)
+        self._loading_locks: dict[str, asyncio.Lock] = {}
+        self._locks_lock = asyncio.Lock()
     
     def _get_cache(self) -> CacheBackend:
         """Get the cache backend instance."""
@@ -155,6 +160,59 @@ class QuotaCacheService:
         cache = self._get_cache()
         key = self._make_key(student_id, week_number)
         await cache.delete(key)
+
+    async def release_quota(
+        self,
+        student_id: str,
+        tokens_to_release: int,
+        week_number: Optional[int] = None,
+        session: Optional[Any] = None,
+    ) -> bool:
+        """Release previously reserved quota.
+        
+        Used when a request fails or is cancelled after quota was reserved.
+        This reverses the quota reservation by applying a negative adjustment.
+        
+        Args:
+            student_id: The student ID
+            tokens_to_release: Number of tokens to release (must be positive)
+            week_number: The academic week number. If None, uses current week.
+            session: Optional database session. If provided, uses it for the operation.
+                    If None, creates a new session.
+            
+        Returns:
+            True if released successfully, False otherwise
+        """
+        if tokens_to_release <= 0:
+            return False
+        
+        if week_number is None:
+            week_number = get_current_week_number()
+        
+        # Invalidate cache to prevent stale data
+        await self.delete_quota_state(student_id, week_number)
+        
+        # Apply negative adjustment to database
+        from gateway.app.db.crud import update_student_quota
+        
+        # Negative adjustment to release the quota
+        adjustment = -tokens_to_release
+        
+        if session is not None:
+            # Use the provided session
+            success, remaining, used = await update_student_quota(
+                session, student_id, adjustment, auto_commit=False
+            )
+            # Note: caller is responsible for committing the session
+            return success
+        else:
+            # Create a new session for this operation
+            from gateway.app.db.async_session import get_async_session
+            async with get_async_session() as new_session:
+                success, remaining, used = await update_student_quota(
+                    new_session, student_id, adjustment, auto_commit=True
+                )
+                return success
     
     async def check_and_reserve_quota(
         self,
@@ -198,20 +256,33 @@ class QuotaCacheService:
             if cached_state.remaining < tokens_needed:
                 return False, cached_state.remaining, cached_state.used_quota
         
-        # Use provided session or create a new one
-        if session is not None:
-            # Use the provided session (e.g., from FastAPI dependency)
-            success, remaining, used = await check_and_consume_quota(
-                session, student_id, tokens_needed, auto_commit=False
-            )
-            # Note: caller is responsible for committing the session
-        else:
-            # Create a new session for this operation
-            from gateway.app.db.async_session import get_async_session
-            async with get_async_session() as new_session:
+        # Get or create per-student lock for single-flight pattern
+        async with self._locks_lock:
+            lock = self._loading_locks.setdefault(student_id, asyncio.Lock())
+        
+        # Hold the lock while checking/reserving quota to prevent concurrent
+        # requests from hitting the database simultaneously
+        async with lock:
+            # Double-check cache after acquiring lock (another request may have populated it)
+            cached_state = await self.get_quota_state(student_id, week_number)
+            if cached_state is not None:
+                if cached_state.remaining < tokens_needed:
+                    return False, cached_state.remaining, cached_state.used_quota
+            
+            # Use provided session or create a new one
+            if session is not None:
+                # Use the provided session (e.g., from FastAPI dependency)
                 success, remaining, used = await check_and_consume_quota(
-                    new_session, student_id, tokens_needed, auto_commit=True
+                    session, student_id, tokens_needed, auto_commit=False
                 )
+                # Note: caller is responsible for committing the session
+            else:
+                # Create a new session for this operation
+                from gateway.app.db.async_session import get_async_session
+                async with get_async_session() as new_session:
+                    success, remaining, used = await check_and_consume_quota(
+                        new_session, student_id, tokens_needed, auto_commit=True
+                    )
         
         if success:
             # Update cache with new state from DB
