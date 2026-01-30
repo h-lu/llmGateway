@@ -20,6 +20,20 @@ from gateway.app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Try to import redis exceptions for error handling
+try:
+    import redis
+    REDIS_EXCEPTIONS = (
+        redis.ConnectionError,
+        redis.TimeoutError,
+        redis.RedisError,
+    )
+except ImportError:
+    # Redis not installed, define dummy exceptions
+    class _DummyRedisError(Exception):
+        pass
+    REDIS_EXCEPTIONS = (_DummyRedisError,)
+
 
 @dataclass
 class RateLimitResult:
@@ -288,12 +302,12 @@ class RedisRateLimiter(RateLimitBackend):
         Uses Redis sorted set to track request timestamps.
         """
         try:
-            redis = await self._get_redis()
+            redis_client = await self._get_redis()
             now = time.time()
             window_start = now - self.window_seconds
             
             # Use pipeline for atomic operations
-            pipe = redis.pipeline()
+            pipe = redis_client.pipeline()
             
             # Remove old entries outside the window
             pipe.zremrangebyscore(key, 0, window_start)
@@ -315,7 +329,7 @@ class RedisRateLimiter(RateLimitBackend):
             # Check if allowed (subtract 1 because we just added)
             if current_count > max_requests:
                 # Remove the request we just added
-                await redis.zrem(key, str(now))
+                await redis_client.zrem(key, str(now))
                 return RateLimitResult(
                     allowed=False,
                     limit=max_requests,
@@ -332,26 +346,59 @@ class RedisRateLimiter(RateLimitBackend):
                 reset_time=int(now + self.window_seconds)
             )
             
+        except redis.ConnectionError as e:
+            # Redis 连接失败 - 可能是服务不可用或网络问题
+            logger.error(f"Redis connection failed: {e}")
+            return self._handle_redis_failure("connection_error")
+        except redis.TimeoutError as e:
+            # Redis 超时 - 服务可能过载
+            logger.warning(f"Redis timeout: {e}")
+            return self._handle_redis_failure("timeout")
+        except redis.RedisError as e:
+            # 其他 Redis 错误
+            logger.error(f"Redis error: {e}")
+            return self._handle_redis_failure("redis_error")
         except Exception as e:
-            logger.warning(f"Redis rate limit error: {e}. Falling back to allow.")
-            # Fail open if Redis is unavailable (configurable behavior)
-            # Note: For security-critical deployments, consider setting fail_closed=True
-            # in configuration to deny requests when rate limiting cannot be enforced
-            fail_closed = getattr(settings, 'rate_limit_fail_closed', False)
-            if fail_closed:
-                return RateLimitResult(
-                    allowed=False,
-                    limit=self.burst_size,
-                    remaining=0,
-                    reset_time=int(time.time() + self.window_seconds),
-                    retry_after=self.window_seconds
-                )
-            return RateLimitResult(
-                allowed=True,
-                limit=self.burst_size,
-                remaining=1,
-                reset_time=int(time.time() + self.window_seconds)
+            # 意外错误 - 记录详细日志并采取保守策略
+            logger.exception(f"Unexpected rate limit error: {e}")
+            return self._handle_redis_failure("unexpected")
+
+    def _handle_redis_failure(self, error_type: str) -> RateLimitResult:
+        """Handle Redis failure with configurable fail-open/fail-closed policy.
+
+        Args:
+            error_type: Type of error for logging purposes
+
+        Returns:
+            RateLimitResult based on fail_closed configuration
+        """
+        fail_closed = getattr(settings, 'rate_limit_fail_closed', False)
+
+        if fail_closed:
+            # 安全敏感环境：Redis 失败时拒绝请求
+            logger.warning(
+                f"Rate limiting fail-closed triggered due to {error_type}. "
+                "Request denied."
             )
+            return RateLimitResult(
+                allowed=False,
+                limit=self.burst_size,
+                remaining=0,
+                reset_time=int(time.time() + self.window_seconds),
+                retry_after=self.window_seconds
+            )
+
+        # 默认：fail-open，允许请求通过但记录警告
+        logger.warning(
+            f"Rate limiting fail-open triggered due to {error_type}. "
+            "Request allowed without rate limit check."
+        )
+        return RateLimitResult(
+            allowed=True,
+            limit=self.burst_size,
+            remaining=1,
+            reset_time=int(time.time() + self.window_seconds)
+        )
     
     async def cleanup(self) -> None:
         """No-op for Redis (keys expire automatically)."""

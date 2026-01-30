@@ -1,11 +1,69 @@
 import hashlib
 import os
+import time
+from typing import Dict, Optional, Tuple
 
 from fastapi import Depends, HTTPException, Request
 
 from gateway.app.db.dependencies import SessionDep
 from gateway.app.db.crud import lookup_student_by_hash
 from gateway.app.db.models import Student
+
+# API Key 内存缓存 (LRU Cache)
+# 结构: {token_hash: (student_dict, timestamp)}
+# 注意: 缓存 dict 而不是 ORM 对象，避免 DetachedInstanceError
+_api_key_cache: Dict[str, Tuple[dict, float]] = {}
+_cache_ttl_seconds = 60  # 缓存 60 秒
+_cache_max_size = 10000  # 最大缓存条目
+
+
+def _get_cached_student(token_hash: str) -> Optional[Student]:
+    """从缓存获取学生信息.
+    
+    Returns:
+        Student 对象或 None（如果缓存未命中或已过期）
+    """
+    if token_hash in _api_key_cache:
+        student_dict, timestamp = _api_key_cache[token_hash]
+        if time.time() - timestamp < _cache_ttl_seconds:
+            # 从 dict 重建 Student 对象（不绑定到 Session）
+            student = Student(
+                id=student_dict['id'],
+                name=student_dict['name'],
+                email=student_dict['email'],
+                api_key_hash=student_dict['api_key_hash'],
+                created_at=student_dict['created_at'],
+                current_week_quota=student_dict['current_week_quota'],
+                used_quota=student_dict['used_quota']
+            )
+            return student
+        else:
+            # 过期清理
+            del _api_key_cache[token_hash]
+    return None
+
+
+def _cache_student(token_hash: str, student: Student) -> None:
+    """缓存学生信息.
+    
+    将 Student ORM 对象转换为 dict 存储，避免 Session 绑定问题。
+    """
+    # LRU: 如果缓存满了，删除最旧的条目
+    if len(_api_key_cache) >= _cache_max_size:
+        oldest_key = min(_api_key_cache, key=lambda k: _api_key_cache[k][1])
+        del _api_key_cache[oldest_key]
+    
+    # 提取学生数据为 dict（避免缓存 ORM 对象）
+    student_dict = {
+        'id': student.id,
+        'name': student.name,
+        'email': student.email,
+        'api_key_hash': student.api_key_hash,
+        'created_at': student.created_at,
+        'current_week_quota': student.current_week_quota,
+        'used_quota': student.used_quota
+    }
+    _api_key_cache[token_hash] = (student_dict, time.time())
 
 
 def get_admin_token() -> str:
@@ -82,8 +140,8 @@ async def require_api_key(
 ) -> Student:
     """Validate API key and return the associated student.
     
-    This function uses FastAPI's dependency injection to get a database session.
-    Use with Depends() in route definitions.
+    Uses in-memory LRU cache to avoid database lookup on every request,
+    significantly improving performance under high concurrency.
     
     Args:
         request: The incoming request
@@ -94,25 +152,27 @@ async def require_api_key(
         
     Raises:
         HTTPException: 401 if API key is missing or invalid
-        
-    Example:
-        @router.post("/chat")
-        async def chat(
-            request: Request,
-            student: Student = Depends(require_api_key)
-        ):
-            ...
     """
     token = get_bearer_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Missing API key")
     
-    # Hash the token and look up the student
+    # Hash the token
     token_hash = hashlib.sha256(token.encode()).hexdigest()
+    
+    # 1. 先查内存缓存
+    cached_student = _get_cached_student(token_hash)
+    if cached_student:
+        return cached_student
+    
+    # 2. 缓存未命中，查数据库
     student = await lookup_student_by_hash(session, token_hash)
     
     if not student:
         raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    # 3. 写入缓存
+    _cache_student(token_hash, student)
     
     return student
 

@@ -1,7 +1,7 @@
 """Chat API endpoints for the gateway."""
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import httpx
 from pydantic import BaseModel, Field, field_validator
@@ -15,7 +15,6 @@ from gateway.app.core.tokenizer import TokenCounter, count_message_tokens
 from gateway.app.core.utils import get_current_week_number
 from gateway.app.services.quota_cache import get_quota_cache_service
 from gateway.app.db.models import Student
-from gateway.app.db.dependencies import SessionDep
 from gateway.app.exceptions import QuotaExceededError
 from gateway.app.middleware.auth import require_api_key
 from gateway.app.middleware.request_id import get_request_id, get_traceparent
@@ -41,7 +40,7 @@ MAX_FAILOVER_ATTEMPTS = settings.max_failover_attempts
 
 class ChatMessage(BaseModel):
     """Message in a chat conversation."""
-    role: str = Field(..., pattern="^(system|user|assistant)$")
+    role: Literal["system", "user", "assistant"]
     content: str = Field(..., min_length=1)
 
 
@@ -111,7 +110,7 @@ async def check_and_reserve_quota(
     student: Student, 
     week_number: int, 
     estimated_tokens: int = 1000,
-    session: SessionDep = None,
+    session = None,
 ) -> int:
     """Check if student has remaining quota and reserve estimated tokens.
     
@@ -503,7 +502,6 @@ async def chat_completions(
     student: Student = Depends(require_api_key),
     async_logger: AsyncConversationLogger = Depends(get_async_logger),
     load_balancer: LoadBalancer = Depends(get_load_balancer_dependency),
-    session: SessionDep = None,
 ) -> StreamingResponse | JSONResponse:
     """Handle chat completion requests.
     
@@ -512,6 +510,9 @@ async def chat_completions(
     2. Evaluates the prompt against rules
     3. Forwards to the AI provider (with fallback support)
     4. Saves the conversation and updates quota (async via background tasks)
+    
+    Note: Database session is managed internally to ensure streaming responses
+    don't hold connections for extended periods.
     
     Args:
         request: The incoming request
@@ -586,24 +587,34 @@ async def chat_completions(
         )
     
     # Load and inject weekly system prompt
-    weekly_prompt_service = get_weekly_prompt_service()
-    weekly_prompt = await weekly_prompt_service.get_prompt_for_week(session, week_number)
-    modified_messages = await inject_weekly_system_prompt(messages, weekly_prompt)
-    
-    if weekly_prompt:
-        logger.info(
-            "Weekly system prompt injected",
-            extra={
-                "student_id": student.id,
-                "week_number": week_number,
-                "prompt_id": weekly_prompt.id,
-                "request_id": request_id,
-            }
+    # Use a separate session that will be closed before streaming
+    from gateway.app.db.async_session import get_async_session
+    async with get_async_session() as db_session:
+        weekly_prompt_service = get_weekly_prompt_service()
+        weekly_prompt = await weekly_prompt_service.get_prompt_for_week(db_session, week_number)
+        modified_messages = await inject_weekly_system_prompt(messages, weekly_prompt)
+        
+        if weekly_prompt:
+            logger.info(
+                "Weekly system prompt injected",
+                extra={
+                    "student_id": student.id,
+                    "week_number": week_number,
+                    "prompt_id": weekly_prompt.id,
+                    "request_id": request_id,
+                }
+            )
+        
+        # Check and reserve quota within the same session
+        # Session will be committed and closed before streaming starts
+        remaining = await check_and_reserve_quota(
+            student, week_number, estimated_tokens=max_tokens, session=db_session
         )
+        
+        # Commit the quota reservation before closing session
+        await db_session.commit()
     
-    # Check and reserve quota (session is managed by get_db() dependency)
-    # Note: get_db() handles commit/rollback automatically based on success/failure
-    remaining = await check_and_reserve_quota(student, week_number, estimated_tokens=max_tokens, session=session)
+    # Session is now closed - streaming response won't hold database connection
     
     # Build payload for upstream
     payload = {
@@ -736,9 +747,12 @@ async def chat_completions(
         # Release reserved quota on provider failure
         if e.status_code == 503:
             quota_service = get_quota_cache_service()
-            released = await quota_service.release_quota(
-                student.id, max_tokens, week_number, session
-            )
+            # Create a new session for quota release (streaming session is already closed)
+            async with get_async_session() as release_session:
+                released = await quota_service.release_quota(
+                    student.id, max_tokens, week_number, release_session
+                )
+                await release_session.commit()
             if released:
                 logger.info(
                     f"Released {max_tokens} reserved tokens after provider failure",

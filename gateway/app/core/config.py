@@ -1,24 +1,58 @@
+import os
 from datetime import date
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables.
-    
+
     All settings can be configured via environment variables or .env file.
     """
-    
+
     # Debug mode - enables detailed error responses
     debug: bool = False
+
+    # PostgreSQL settings
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_test_port: int = 5433
+    db_user: str = "teachproxy"
+    db_password: str = "teachproxy123"
+    db_name: str = "teachproxy"
+    db_test_name: str = "teachproxy_test"
+
+    # Connection pool settings - optimized for high concurrency
+    # Context7 Best Practice: max_overflow=-1 allows unlimited connections under burst load
+    db_pool_size: int = 50           # Base pool size
+    db_max_overflow: int = -1        # -1 = unlimited overflow (critical for 200+ concurrency)
+    db_pool_timeout: int = 5         # Aggressive timeout to fail fast and retry
+    db_pool_recycle: int = 1800      # Recycle every 30 minutes (was 1 hour)
+    db_pool_pre_ping: bool = True    # Re-enable to detect stale connections
     
-    # Database settings
-    database_url: str = "sqlite+pysqlite:///./teachproxy.db"
-    db_pool_size: int = 10
-    db_max_overflow: int = 20
-    db_pool_timeout: int = 30
-    db_pool_recycle: int = 3600
+    # asyncpg specific optimizations
+    db_command_timeout: float = 30.0           # Reduced from 60s for faster timeout
+    db_max_prepared_statements: int = 1000     # Prepared statement cache
+    
+    # Rate limiting - increased for stress testing
+    rate_limit_requests_per_minute: int = 10000
+    rate_limit_burst_size: int = 2000          # Increased burst capacity
+
+    @property
+    def database_url(self) -> str:
+        """Build PostgreSQL connection URL."""
+        # Check if running in pytest
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return (
+                f"postgresql+asyncpg://{self.db_user}:{self.db_password}@"
+                f"{self.db_host}:{self.db_test_port}/{self.db_test_name}"
+            )
+        return (
+            f"postgresql+asyncpg://{self.db_user}:{self.db_password}@"
+            f"{self.db_host}:{self.db_port}/{self.db_name}"
+        )
     
     # DeepSeek settings
     deepseek_api_key: str = ""
@@ -71,6 +105,51 @@ class Settings(BaseSettings):
     # Provider failover settings
     max_failover_attempts: int = 3  # Maximum failover attempts for provider failures
     
+    # CORS settings
+    cors_origins: list[str] = ["*"]  # Allowed CORS origins
+
+    @field_validator('rate_limit_requests_per_minute', 'rate_limit_burst_size')
+    @classmethod
+    def validate_rate_limit_positive(cls, v: int) -> int:
+        """Validate rate limit values are positive."""
+        if v < 1:
+            raise ValueError("Rate limit values must be at least 1")
+        return v
+
+    @field_validator('db_pool_size')
+    @classmethod
+    def validate_pool_size_positive(cls, v: int) -> int:
+        """Validate pool_size is positive."""
+        if v < 1:
+            raise ValueError("db_pool_size must be at least 1")
+        return v
+
+    @field_validator('db_max_overflow')
+    @classmethod
+    def validate_max_overflow(cls, v: int) -> int:
+        """Validate max_overflow is -1 (unlimited) or positive."""
+        if v < -1:
+            raise ValueError("db_max_overflow must be -1 (unlimited) or >= 0")
+        return v
+
+    @field_validator('httpx_timeout', 'httpx_connect_timeout', 'httpx_read_timeout')
+    @classmethod
+    def validate_timeout_positive(cls, v: float) -> float:
+        """Validate timeout values are positive."""
+        if v <= 0:
+            raise ValueError("Timeout values must be positive")
+        return v
+
+    @field_validator('quota_sync_interval_seconds')
+    @classmethod
+    def validate_sync_interval(cls, v: int) -> int:
+        """Validate quota sync interval is reasonable."""
+        if v < 10:
+            raise ValueError("quota_sync_interval_seconds should be at least 10 seconds")
+        if v > 3600:
+            raise ValueError("quota_sync_interval_seconds should not exceed 1 hour")
+        return v
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
