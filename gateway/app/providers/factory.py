@@ -17,6 +17,7 @@ from gateway.app.core.logging import get_logger
 from gateway.app.providers.base import BaseProvider
 from gateway.app.providers.deepseek import DeepSeekProvider
 from gateway.app.providers.openai import OpenAIProvider
+from gateway.app.providers.mock import MockProvider
 
 if TYPE_CHECKING:
     # Avoid circular imports at runtime
@@ -30,12 +31,14 @@ class ProviderType(str, Enum):
     """Supported provider types."""
     DEEPSEEK = "deepseek"
     OPENAI = "openai"
+    MOCK = "mock"
 
 
 # Provider registry mapping types to classes
 _PROVIDER_REGISTRY: Dict[ProviderType, Type[BaseProvider]] = {
     ProviderType.DEEPSEEK: DeepSeekProvider,
     ProviderType.OPENAI: OpenAIProvider,
+    ProviderType.MOCK: MockProvider,
 }
 
 
@@ -137,6 +140,11 @@ class ProviderFactory:
     
     def _load_configs(self) -> None:
         """Load provider configurations from environment."""
+        # Check if mock provider is forced (for testing)
+        if os.getenv("TEACHPROXY_MOCK_PROVIDER", "").lower() == "true":
+            logger.info("Mock provider mode enabled, skipping real provider configuration")
+            return
+        
         # Load DeepSeek config
         deepseek_config = ProviderConfig.from_env("DEEPSEEK", ProviderType.DEEPSEEK)
         if deepseek_config:
@@ -218,6 +226,10 @@ class ProviderFactory:
         ]
         
         if not enabled_configs:
+            # Check if we should use mock provider
+            if os.getenv("TEACHPROXY_MOCK_PROVIDER", "").lower() == "true":
+                logger.info("No providers configured, using mock provider for testing")
+                return MockProvider()
             raise RuntimeError("No providers are configured or enabled")
         
         # Sort by priority (lower number = higher priority)
@@ -435,6 +447,16 @@ def _register_providers_with_load_balancer(
         Uses string type annotations to avoid circular imports.
     """
     configured_types = factory.list_configured_providers()
+    
+    # If no providers configured but mock is enabled, register mock provider
+    if not configured_types and os.getenv("TEACHPROXY_MOCK_PROVIDER", "").lower() == "true":
+        try:
+            mock_provider = MockProvider()
+            load_balancer.register_provider(mock_provider, name="mock")
+            logger.info("Registered mock provider with load balancer for testing")
+        except Exception as e:
+            logger.warning(f"Failed to register mock provider: {e}")
+        return
     
     for provider_type in configured_types:
         try:
