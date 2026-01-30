@@ -2,21 +2,31 @@
 
 This module provides async database operations, replacing the synchronous
 session management for better performance in async applications.
+
+SQLite Concurrency Optimizations:
+- WAL (Write-Ahead Logging) mode for concurrent reads/writes
+- StaticPool for single connection reuse
+- busy_timeout for automatic lock retry
 """
 
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import Depends
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, StaticPool
 from typing_extensions import Annotated
 
 from gateway.app.core.config import settings
+from gateway.app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Global engine and session maker instances
 _async_engine = None
@@ -31,6 +41,10 @@ def get_async_engine(database_url: str | None = None):
         
     Returns:
         AsyncEngine instance
+        
+    Note:
+        For SQLite, enables WAL mode and busy_timeout for better concurrency.
+        Uses StaticPool to share a single connection across all requests.
     """
     global _async_engine
     if _async_engine is None:
@@ -48,15 +62,50 @@ def get_async_engine(database_url: str | None = None):
         elif url.startswith("sqlite://") and not url.startswith("sqlite+aiosqlite://"):
             url = url.replace("sqlite://", "sqlite+aiosqlite://", 1)
         
-        # SQLite doesn't support connection pooling well, use NullPool for SQLite
+        # SQLite concurrency optimizations
         if "sqlite" in url:
             _async_engine = create_async_engine(
                 url,
                 echo=False,
                 future=True,
-                poolclass=NullPool,
+                poolclass=StaticPool,
+                connect_args={
+                    "check_same_thread": False,
+                    "timeout": 30.0,  # Connection timeout
+                },
             )
+            
+            # Enable WAL mode and busy_timeout for better concurrency
+            @event.listens_for(_async_engine.sync_engine, "connect")
+            def set_sqlite_pragma(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                # WAL mode: allows concurrent reads while writing
+                cursor.execute("PRAGMA journal_mode = WAL")
+                # busy_timeout: wait up to 30 seconds for locks
+                cursor.execute("PRAGMA busy_timeout = 30000")
+                # synchronous=NORMAL: good balance of safety/performance with WAL
+                cursor.execute("PRAGMA synchronous = NORMAL")
+                cursor.close()
+            
+            # Add slow query monitoring for performance observability
+            @event.listens_for(_async_engine.sync_engine, "before_cursor_execute")
+            def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+                context._query_start_time = time.time()
+            
+            @event.listens_for(_async_engine.sync_engine, "after_cursor_execute")
+            def after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+                total_time = time.time() - context._query_start_time
+                if total_time > 1.0:  # Log queries taking more than 1 second
+                    logger.warning(
+                        "Slow query detected",
+                        extra={
+                            "query_time": round(total_time, 3),
+                            "query": statement[:200] if len(statement) > 200 else statement,
+                        }
+                    )
+                
         else:
+            # PostgreSQL and other databases use standard connection pooling
             _async_engine = create_async_engine(
                 url,
                 echo=False,

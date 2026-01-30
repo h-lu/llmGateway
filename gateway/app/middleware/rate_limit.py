@@ -8,6 +8,7 @@ with sliding window and token bucket algorithms.
 import asyncio
 import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Tuple, Any
 
@@ -71,14 +72,22 @@ class InMemoryRateLimiter(RateLimitBackend):
     
     Supports sliding window and token bucket algorithms.
     Suitable for single-instance deployments.
+    
+    Memory optimization:
+    - Uses OrderedDict for LRU cache behavior
+    - Limits max entries to prevent unbounded memory growth
+    - Automatic cleanup of old entries when limit exceeded
     """
+    
+    DEFAULT_MAX_ENTRIES = 10000
     
     def __init__(
         self,
         requests_per_minute: int = 60,
         burst_size: int = 10,
         window_seconds: int = 60,
-        algorithm: str = "sliding_window"
+        algorithm: str = "sliding_window",
+        max_entries: int = DEFAULT_MAX_ENTRIES
     ):
         """Initialize rate limiter.
         
@@ -87,17 +96,19 @@ class InMemoryRateLimiter(RateLimitBackend):
             burst_size: Maximum burst requests allowed
             window_seconds: Time window in seconds
             algorithm: Rate limiting algorithm (sliding_window or token_bucket)
+            max_entries: Maximum number of entries to store (LRU eviction)
         """
         self.requests_per_minute = requests_per_minute
         self.burst_size = burst_size
         self.window_seconds = window_seconds
         self.algorithm = algorithm
+        self._max_entries = max_entries
         
-        # Storage for sliding window
-        self._window_storage: Dict[str, RateLimitEntry] = {}
+        # Storage for sliding window (OrderedDict for LRU)
+        self._window_storage: OrderedDict[str, RateLimitEntry] = OrderedDict()
         
-        # Storage for token bucket
-        self._bucket_storage: Dict[str, TokenBucket] = {}
+        # Storage for token bucket (OrderedDict for LRU)
+        self._bucket_storage: OrderedDict[str, TokenBucket] = OrderedDict()
         
         self._lock = asyncio.Lock()
     
@@ -108,10 +119,30 @@ class InMemoryRateLimiter(RateLimitBackend):
         else:
             return await self._check_sliding_window(key)
     
+    def _enforce_lru_limit(self) -> None:
+        """Enforce max entries limit using LRU eviction."""
+        if len(self._window_storage) > self._max_entries:
+            # Remove oldest 20% of entries
+            remove_count = int(self._max_entries * 0.2)
+            for _ in range(remove_count):
+                self._window_storage.popitem(last=False)
+        if len(self._bucket_storage) > self._max_entries:
+            remove_count = int(self._max_entries * 0.2)
+            for _ in range(remove_count):
+                self._bucket_storage.popitem(last=False)
+    
     async def _check_sliding_window(self, key: str) -> RateLimitResult:
         """Check using sliding window algorithm."""
         async with self._lock:
             now = time.time()
+            
+            # Enforce LRU limit before adding new entry
+            self._enforce_lru_limit()
+            
+            # Move key to end (most recently used)
+            if key in self._window_storage:
+                self._window_storage.move_to_end(key)
+            
             entry = self._window_storage.get(key)
             
             # Reset window if expired
@@ -148,6 +179,14 @@ class InMemoryRateLimiter(RateLimitBackend):
         """Check using token bucket algorithm."""
         async with self._lock:
             now = time.time()
+            
+            # Enforce LRU limit before adding new entry
+            self._enforce_lru_limit()
+            
+            # Move key to end (most recently used)
+            if key in self._bucket_storage:
+                self._bucket_storage.move_to_end(key)
+            
             bucket = self._bucket_storage.get(key)
             
             if bucket is None:

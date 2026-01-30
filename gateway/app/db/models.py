@@ -40,16 +40,6 @@ class Rule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
-class QuotaLog(Base):
-    __tablename__ = "quota_logs"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"))
-    week_number: Mapped[int] = mapped_column(Integer)
-    tokens_granted: Mapped[int] = mapped_column(Integer)
-    tokens_used: Mapped[int] = mapped_column(Integer)
-    reset_at: Mapped[datetime] = mapped_column(DateTime)
-
-
 class WeeklySystemPrompt(Base):
     """Weekly system prompt configuration.
     
@@ -59,12 +49,12 @@ class WeeklySystemPrompt(Base):
     
     __tablename__ = "weekly_system_prompts"
     
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
     week_start: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     week_end: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(String(255), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -76,3 +66,13 @@ class WeeklySystemPrompt(Base):
     def is_current_week(self, week_number: int) -> bool:
         """Check if given week number falls within this prompt's range."""
         return self.week_start <= week_number <= self.week_end
+
+
+class QuotaLog(Base):
+    __tablename__ = "quota_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    student_id: Mapped[str] = mapped_column(ForeignKey("students.id"))
+    week_number: Mapped[int] = mapped_column(Integer)
+    tokens_granted: Mapped[int] = mapped_column(Integer)
+    tokens_used: Mapped[int] = mapped_column(Integer)
+    reset_at: Mapped[datetime] = mapped_column(DateTime)

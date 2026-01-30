@@ -197,6 +197,11 @@ async def handle_streaming_response(
         parse_errors = 0  # Track consecutive parse errors
         max_parse_errors = 10  # Abort after too many errors
         
+        # Buffer for optimized streaming (reduces syscall overhead)
+        buffer: List[str] = []
+        buffer_size = 0
+        max_buffer_size = 4096  # 4KB buffer for efficient transmission
+        
         try:
             async for line in provider.stream_chat(payload, traceparent=traceparent):
                 # Check for excessive parse errors
@@ -209,7 +214,15 @@ async def handle_streaming_response(
                     yield "data: [DONE]\n\n"
                     return
                 
-                yield line + "\n\n"
+                # Buffer data for efficient transmission
+                buffer.append(line + "\n\n")
+                buffer_size += len(line) + 2
+                
+                # Yield when buffer reaches threshold
+                if buffer_size >= max_buffer_size:
+                    yield "".join(buffer)
+                    buffer = []
+                    buffer_size = 0
                 
                 # Parse and count tokens
                 try:
@@ -258,6 +271,12 @@ async def handle_streaming_response(
                         f"Error processing stream chunk: {e}",
                         extra={"request_id": request_id, "error_type": type(e).__name__}
                     )
+            
+            # Stream completed normally - flush remaining buffer
+            if buffer:
+                yield "".join(buffer)
+                buffer = []
+                buffer_size = 0
                     
         except httpx.HTTPStatusError as e:
             # Upstream API error - log details but return safe message
@@ -269,6 +288,9 @@ async def handle_streaming_response(
                     "response_preview": e.response.text[:200] if len(e.response.text) > 200 else e.response.text
                 }
             )
+            # Flush any remaining buffered data before returning error
+            if buffer:
+                yield "".join(buffer)
             # Return safe error message (no upstream details to client)
             yield 'data: {"error": "Upstream service error"}\n\n'
             yield "data: [DONE]\n\n"
@@ -278,6 +300,9 @@ async def handle_streaming_response(
                 "Upstream timeout",
                 extra={"request_id": request_id}
             )
+            # Flush any remaining buffered data before returning error
+            if buffer:
+                yield "".join(buffer)
             yield 'data: {"error": "Request timeout, please retry"}\n\n'
             yield "data: [DONE]\n\n"
             return
@@ -287,6 +312,9 @@ async def handle_streaming_response(
                 f"Unexpected stream error: {e}",
                 extra={"request_id": request_id}
             )
+            # Flush any remaining buffered data before returning error
+            if buffer:
+                yield "".join(buffer)
             # Generic error message (no exception details to client)
             yield 'data: {"error": "Stream interrupted, please retry"}\n\n'
             yield "data: [DONE]\n\n"
