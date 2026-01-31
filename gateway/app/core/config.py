@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     db_test_name: str = "teachproxy_test"
 
     # Connection pool settings - aligned with asyncpg best practices
-    db_pool_min_size: int = 10                  # Warm connections to maintain (asyncpg min_size)
-    db_pool_max_size: int = 50                  # Maximum connections (SQLAlchemy pool_size + max_overflow)
+    db_pool_size: int = 100                     # Base pool size (SQLAlchemy pool_size)
+    db_max_overflow: int = 50                   # Overflow connections for burst traffic
     db_pool_timeout: int = 30                   # Seconds to wait for connection (increased from 5s)
     db_pool_recycle: int = 300                  # Recycle every 5 minutes (reduced from 30min)
     db_pool_pre_ping: bool = True               # Detect stale connections before use
@@ -113,21 +113,12 @@ class Settings(BaseSettings):
             raise ValueError("Rate limit values must be at least 1")
         return v
 
-    @field_validator('db_pool_min_size', 'db_pool_max_size')
+    @field_validator('db_pool_size', 'db_max_overflow')
     @classmethod
     def validate_pool_size_positive(cls, v: int) -> int:
         """Validate pool_size is positive."""
         if v < 1:
             raise ValueError("db_pool_size must be at least 1")
-        return v
-
-    @field_validator('db_pool_max_size')
-    @classmethod
-    def validate_max_size_at_least_min(cls, v: int, info) -> int:
-        """Validate max_size is at least min_size."""
-        min_size = info.data.get('db_pool_min_size', 10)
-        if v < min_size:
-            raise ValueError(f"db_pool_max_size ({v}) must be at least db_pool_min_size ({min_size})")
         return v
 
     @field_validator('httpx_timeout', 'httpx_connect_timeout', 'httpx_read_timeout')

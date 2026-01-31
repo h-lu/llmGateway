@@ -60,16 +60,16 @@ def get_async_engine(database_url: str | None = None) -> AsyncEngine:
         url,
         echo=False,
         future=True,
-        pool_size=settings.db_pool_min_size,  # Acts as min_size in SQLAlchemy
-        max_overflow=settings.db_pool_max_size - settings.db_pool_min_size,  # Calculate overflow
+        pool_size=settings.db_pool_size,  # 100
+        max_overflow=settings.db_max_overflow,  # 50
         pool_timeout=settings.db_pool_timeout,
         pool_recycle=settings.db_pool_recycle,
         pool_pre_ping=settings.db_pool_pre_ping,
         connect_args=connect_args,
     )
     logger.info(
-        f"Created async engine (min_size={settings.db_pool_min_size}, "
-        f"max_size={settings.db_pool_max_size}, "
+        f"Created async engine (pool_size={settings.db_pool_size}, "
+        f"max_overflow={settings.db_max_overflow}, "
         f"pool_timeout={settings.db_pool_timeout}s, "
         f"max_queries={settings.db_max_queries})"
     )
@@ -166,8 +166,8 @@ async def init_async_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def warmup_connection_pool(min_connections: int = 10) -> None:
-    """Warm up the connection pool by pre-creating connections.
+async def warmup_connection_pool(min_connections: int = 50) -> None:
+    """Warm up the connection pool by creating initial connections.
 
     This prevents connection storm during high traffic by pre-establishing
     a minimum number of connections before accepting traffic.
@@ -175,34 +175,25 @@ async def warmup_connection_pool(min_connections: int = 10) -> None:
     Args:
         min_connections: Minimum number of connections to pre-create
     """
-    engine = get_async_engine()
-    logger.info(f"Warming up connection pool (target: {min_connections} connections)...")
+    from sqlalchemy import text
 
-    # Create connections concurrently
-    async def ping_connection():
-        try:
-            async with engine.connect() as conn:
-                from sqlalchemy import text
-                await conn.execute(text("SELECT 1"))
-                return True
-        except Exception as e:
-            logger.warning(f"Failed to warm up connection: {e}")
-            return False
+    logger.info(f"Warming up connection pool with {min_connections} connections...")
+    start_time = asyncio.get_event_loop().time()
 
-    # Warm up connections in batches to avoid overwhelming the database
-    batch_size = min(10, min_connections)
-    successful = 0
+    # Create connections concurrently with batching
+    async def create_connection():
+        async with get_async_session() as session:
+            await session.execute(text("SELECT 1"))
 
+    # Batch creation to avoid overwhelming the database
+    batch_size = 10
     for i in range(0, min_connections, batch_size):
-        batch_count = min(batch_size, min_connections - i)
-        results = await asyncio.gather(*[ping_connection() for _ in range(batch_count)])
-        successful += sum(results)
-        logger.debug(f"Warmed up {successful}/{min_connections} connections...")
-        # Small delay between batches
-        if i + batch_size < min_connections:
-            await asyncio.sleep(0.1)
+        batch = min(batch_size, min_connections - i)
+        await asyncio.gather(*[create_connection() for _ in range(batch)])
+        await asyncio.sleep(0.1)
 
-    logger.info(f"Connection pool warmup complete: {successful}/{min_connections} connections ready")
+    elapsed = asyncio.get_event_loop().time() - start_time
+    logger.info(f"Connection pool warmup complete in {elapsed:.2f}s")
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
