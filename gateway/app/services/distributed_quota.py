@@ -66,7 +66,7 @@ class DistributedQuotaService:
     """Service for distributed quota management using Redis.
     
     Provides:
-    - Atomic quota operations using Redis INCR/DECR
+    - Atomic quota operations using Redis Lua scripts
     - Multi-instance quota sharing
     - Periodic sync from Redis to database (every 60 seconds)
     - Fallback to database when Redis is unavailable
@@ -81,6 +81,54 @@ class DistributedQuotaService:
     REDIS_KEY_PREFIX_META = "quota:meta"
     SYNC_INTERVAL_SECONDS = 60  # Sync to DB every minute
     REDIS_TTL_SECONDS = 86400 * 7  # 7 days TTL for weekly quota data
+    
+    # Lua script for atomic check-and-consume operation
+    # This prevents TOCTOU race conditions by checking and incrementing in one atomic operation
+    CHECK_AND_CONSUME_SCRIPT = """
+        local used_key = KEYS[1]
+        local meta_key = KEYS[2]
+        local current_week_quota = tonumber(ARGV[1])
+        local tokens_needed = tonumber(ARGV[2])
+        local ttl = tonumber(ARGV[3])
+        local student_id = ARGV[4]
+        local week_number = ARGV[5]
+        local now = ARGV[6]
+        
+        -- Get current used value
+        local current = redis.call('GET', used_key)
+        local current_used = tonumber(current) or 0
+        
+        -- Check if quota is available
+        local remaining = current_week_quota - current_used
+        if remaining < tokens_needed then
+            -- Not enough quota, return failure
+            return {0, remaining, current_used}
+        end
+        
+        -- Atomically increment
+        local new_used = redis.call('INCRBY', used_key, tokens_needed)
+        
+        -- Set TTL if this is a new key
+        if current == nil then
+            redis.call('EXPIRE', used_key, ttl)
+        end
+        
+        -- Update metadata
+        local meta = redis.call('GET', meta_key)
+        local meta_table = {}
+        if meta then
+            meta_table = cjson.decode(meta)
+        end
+        meta_table['quota'] = current_week_quota
+        meta_table['last_used'] = now
+        meta_table['student_id'] = student_id
+        meta_table['week_number'] = week_number
+        redis.call('SETEX', meta_key, ttl, cjson.encode(meta_table))
+        
+        -- Return success
+        local new_remaining = current_week_quota - new_used
+        return {1, new_remaining, new_used}
+    """
     
     def __init__(
         self,
@@ -337,10 +385,10 @@ class DistributedQuotaService:
         tokens_needed: int,
         week_number: int,
     ) -> tuple[bool, int, int]:
-        """Check and consume quota using Redis atomic operations.
+        """Check and consume quota using Redis Lua script for atomicity.
         
-        Uses Lua script or WATCH/MULTI/EXEC pattern for atomic check-and-consume.
-        For simplicity, we use INCR and check result.
+        Uses Lua script for atomic check-and-consume to prevent TOCTOU race conditions.
+        The entire operation (check + increment) happens atomically on the Redis server.
         
         Args:
             student_id: The student ID
@@ -358,11 +406,11 @@ class DistributedQuotaService:
         used_key = self._make_used_key(student_id, week_number)
         meta_key = self._make_meta_key(student_id, week_number)
         
-        # Check if Redis has this student's quota initialized
+        # First, ensure Redis has this student's quota initialized
         exists = await redis.exists(used_key)
         
         if not exists:
-            # Initialize from database
+            # Initialize from database (outside the atomic operation)
             db_state = await self._get_initial_quota_from_db(student_id, week_number)
             if db_state is None:
                 return False, 0, 0
@@ -374,34 +422,83 @@ class DistributedQuotaService:
                 week_number,
             )
         
-        # Use Redis INCRBY to atomically increment used quota
-        # First, check current value
+        # Execute Lua script for atomic check-and-consume
+        # This prevents TOCTOU race conditions by checking and incrementing atomically
+        try:
+            result = await redis.eval(
+                self.CHECK_AND_CONSUME_SCRIPT,
+                2,  # Number of keys
+                used_key,  # KEYS[1]
+                meta_key,  # KEYS[2]
+                current_week_quota,  # ARGV[1]
+                tokens_needed,  # ARGV[2]
+                self.REDIS_TTL_SECONDS,  # ARGV[3]
+                str(student_id),  # ARGV[4]
+                str(week_number),  # ARGV[5]
+                datetime.now().isoformat(),  # ARGV[6]
+            )
+        except Exception as e:
+            logger.error(f"Lua script execution failed: {e}")
+            # Fallback to non-atomic method (less safe but better than hard failure)
+            return await self._check_and_consume_fallback(
+                student_id, tokens_needed, current_week_quota, week_number
+            )
+        
+        # Parse result: [success (0/1), remaining, new_used]
+        success = bool(result[0])
+        remaining = int(result[1])
+        new_used = int(result[2])
+        
+        # Track for sync to DB
+        if success:
+            async with self._sync_lock:
+                self._pending_syncs[student_id] = new_used
+        
+        return success, remaining, new_used
+    
+    async def _check_and_consume_fallback(
+        self,
+        student_id: str,
+        tokens_needed: int,
+        current_week_quota: int,
+        week_number: int,
+    ) -> tuple[bool, int, int]:
+        """Fallback method for quota check-and-consume (non-atomic).
+        
+        This is used only when Lua script execution fails.
+        Not recommended for high-concurrency scenarios due to TOCTOU race conditions.
+        
+        Args:
+            student_id: The student ID
+            tokens_needed: Number of tokens to consume
+            current_week_quota: Maximum tokens allowed
+            week_number: The academic week number
+            
+        Returns:
+            Tuple of (success, remaining_quota, current_used)
+        """
+        redis = self._get_redis()
+        if redis is None:
+            raise RuntimeError("Redis not available")
+        
+        used_key = self._make_used_key(student_id, week_number)
+        meta_key = self._make_meta_key(student_id, week_number)
+        
+        # Check current value
         current_val = await redis.get(used_key)
         if current_val is None:
-            # Race condition: initialized but expired, re-initialize
             current_val = b"0"
         
         current_used = int(current_val)
         remaining = current_week_quota - current_used
         
         if remaining < tokens_needed:
-            # Not enough quota
             return False, remaining, current_used
         
-        # Atomically increment
+        # Increment (non-atomic with check above)
         new_val = await redis.incrby(used_key, tokens_needed)
         new_used = int(new_val)
         new_remaining = current_week_quota - new_used
-        
-        # Update metadata timestamp
-        try:
-            meta_val = await redis.get(meta_key)
-            if meta_val:
-                meta = json.loads(meta_val)
-                meta["last_used"] = datetime.now().isoformat()
-                await redis.setex(meta_key, self.REDIS_TTL_SECONDS, json.dumps(meta))
-        except Exception:
-            pass  # Non-critical
         
         # Track for sync to DB
         async with self._sync_lock:

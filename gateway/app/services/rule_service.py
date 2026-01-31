@@ -21,7 +21,7 @@ from gateway.app.db.models import Rule
 logger = get_logger(__name__)
 
 # Regex timeout to prevent ReDoS attacks (in seconds)
-REGEX_TIMEOUT_SECONDS = 1.0
+REGEX_TIMEOUT_SECONDS = 0.1  # Reduced from 1.0 to prevent blocking
 
 # Thread pool executor for running regex in separate threads with timeout
 _regex_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="regex_worker")

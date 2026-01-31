@@ -1,61 +1,69 @@
 # Gateway Architecture Overview
 
 ## Project Purpose
-TeachProxy Gateway - AI gateway service with rate limiting, quota management, and rule-based content filtering for educational use.
+TeachProxy Gateway is an AI API gateway service built with FastAPI that provides:
+- Rate limiting and quota management
+- Multi-provider support (DeepSeek, OpenAI, Mock)
+- Rule-based content filtering
+- Health checking and failover
+- Metrics and observability
 
 ## Technology Stack
 - **Framework**: FastAPI with async/await
-- **Database**: SQLAlchemy with async session support (SQLite, extensible to PostgreSQL)
-- **Cache**: Optional Redis support for distributed rate limiting and quota management
+- **Database**: PostgreSQL with asyncpg driver
 - **HTTP Client**: httpx with connection pooling
-- **Token Counting**: tiktoken for accurate token counting
+- **Caching**: Redis (optional)
+- **Logging**: Structured logging with OpenTelemetry tracing
 
 ## Directory Structure
+
 ```
-gateway/app/
-├── main.py              # FastAPI app factory, middleware setup, exception handlers
-├── core/                # Core utilities (config, logging, tokenizer, cache, http_client)
-├── providers/           # AI provider abstraction (base, factory, loadbalancer, health, retry)
-├── db/                  # Database models, async session, CRUD operations
-├── services/            # Business logic (quota, rules, conversation, distributed_quota)
-├── middleware/          # FastAPI middleware (auth, rate_limit, request_id, request_size)
-└── api/                 # Route handlers (chat, metrics, weekly_prompts)
+app/
+├── api/           # API endpoints (chat, metrics, weekly_prompts)
+├── core/          # Core utilities (config, http_client, logging, security, cache, tracing)
+├── db/            # Database models, sessions, CRUD operations
+├── middleware/    # Custom middleware (auth, rate_limit, request_id, request_size)
+├── providers/     # Provider implementations and load balancing
+└── services/      # Business logic (conversation, quota, rules, distributed_quota)
 ```
 
-## Key Design Patterns
-1. **Factory Pattern**: ProviderFactory for creating AI provider instances
-2. **Singleton Pattern**: Global instances for factory, load balancer, health checker
-3. **Repository Pattern**: CRUD layer abstracting database operations
-4. **Middleware Pipeline**: Nested middleware for cross-cutting concerns
-5. **Async/Batch Processing**: Async conversation logger with batch writes
-6. **Health Checking**: Background health checks for provider failover
+## Application Lifecycle (`app/main.py`)
 
-## Request Flow
-1. RequestSizeLimitMiddleware (10MB limit)
-2. MetricsMiddleware (collects metrics)
-3. RateLimitMiddleware (per API key or IP)
-4. RequestIdMiddleware (adds tracing ID)
-5. Route handler (chat_completions)
-6. Auth validation → Quota check → Rule evaluation → Provider selection → Response
+### Startup Sequence (`lifespan`)
+1. Initialize shared HTTP client with connection pooling
+2. Verify database connection
+3. Initialize database (create tables if needed)
+4. Warm up connection pool (20 pre-created connections)
+5. Warm rules cache
+6. Start provider health checker
 
-## Configuration
-All settings via environment variables (see `app/core/config.py`):
-- Database URL, pool settings
-- Provider API keys and URLs
-- Rate limiting parameters
-- Cache/Redis settings
-- Academic calendar (for week-based quotas)
+### Shutdown Sequence
+1. Stop health checker
+2. Flush conversation logs
+3. Close cache connections (Redis)
+4. Close database engine
 
-## Database Models
-- `Student`: API keys, quota tracking
-- `Conversation`: Audit log of all conversations
-- `Rule`: Content filtering rules with week ranges
-- `WeeklySystemPrompt`: Progressive learning prompts per week
-- `QuotaLog`: Quota change history
+## Key Configuration (`app/core/config.py`)
 
-## Provider Architecture
-- Base abstract class defines interface
-- Concrete implementations: DeepSeekProvider, OpenAIProvider, MockProvider
-- Load balancer with strategies: round_robin, weighted, health_first
-- Health checker with background monitoring
-- Retry policy with exponential backoff
+### Database Settings
+- `db_pool_size`: 50 (base pool size)
+- `db_max_overflow`: -1 (unlimited for burst load)
+- `db_pool_timeout`: 5 seconds (fail fast)
+- `db_pool_recycle`: 1800 seconds (30 minutes)
+
+### HTTP Client Settings
+- `httpx_max_connections`: 100
+- `httpx_max_keepalive_connections`: 20
+- `httpx_timeout`: 60 seconds default
+
+### Rate Limiting
+- `rate_limit_requests_per_minute`: 60
+- `rate_limit_burst_size`: 10
+
+## Database Models (`app/db/models.py`)
+
+- **Student**: User account with weekly token quota
+- **Conversation**: Chat conversation history
+- **Rule**: Content filtering rules (regex patterns)
+- **WeeklySystemPrompt**: Weekly prompts with date ranges
+- **QuotaLog**: Quota usage tracking

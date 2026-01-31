@@ -1,87 +1,137 @@
 # Gateway Middleware Chain
 
-## Middleware Order (Outer → Inner)
-FastAPI middleware is executed in reverse order of registration.
+## Middleware Execution Order
+
+The middleware is applied in the following order (from outer to inner):
 
 ```
-Request →
-  [RequestSizeLimitMiddleware]     # Outermost - executes first
-    [MetricsMiddleware]             # Collects metrics
-      [RateLimitMiddleware]         # Rate limiting
-        [RequestIdMiddleware]       # Innermost - executes last
-          → Route Handler ←
-        [RequestIdMiddleware]       # Response path
-      [RateLimitMiddleware]
-    [MetricsMiddleware]
-  [RequestSizeLimitMiddleware]
-← Response
+Request
+    │
+    ▼
+┌─────────────────────────────────┐
+│ 1. SessionMiddleware            │ ← FastAPI built-in
+│    - Session management         │
+└─────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────┐
+│ 2. CORSMiddleware               │ ← FastAPI built-in
+│    - CORS headers               │
+│    - Origin validation          │
+└─────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────┐
+│ 3. MetricsMiddleware            │ ← app/api/metrics.py
+│    - Request timing             │
+│    - Status code tracking       │
+└─────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────┐
+│ 4. RequestIdMiddleware          │ ← app/middleware/request_id.py
+│    - Generate unique request ID │
+│    - Add to response headers    │
+└─────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────┐
+│ 5. RateLimitMiddleware          │ ← app/middleware/rate_limit.py
+│    - Token bucket rate limiting │
+│    - Redis-backed (optional)    │
+└─────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────┐
+│ 6. AuthMiddleware               │ ← app/middleware/auth.py
+│    - Student authentication     │
+│    - API key validation         │
+└─────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────┐
+│ 7. RequestSizeMiddleware        │ ← app/middleware/request_size.py
+│    - Content size validation    │
+│    - Max size enforcement       │
+└─────────────────────────────────┘
+    │
+    ▼
+Route Handler
 ```
 
-## Individual Middleware
-
-### RequestSizeLimitMiddleware (`app/middleware/request_size.py`)
-- **Purpose**: Prevent large payload attacks
-- **Limit**: 10MB default (configurable)
-- **Action**: Returns HTTP 413 if exceeded
-
-### MetricsMiddleware (`app/api/metrics.py`)
-- **Purpose**: Collect request/response metrics
-- **Tracks**: Request count, error count, response times
-- **Endpoint**: `GET /metrics` returns Prometheus-style metrics
-
-### RateLimitMiddleware (`app/middleware/rate_limit.py`)
-- **Purpose**: Prevent API abuse
-- **Key**: Hashed API key or IP address (hashed for privacy)
-- **Algorithms**:
-  - `sliding_window` - Fixed window with sliding
-  - `token_bucket` - Token bucket algorithm
-- **Backends**:
-  - `InMemoryRateLimiter` - Single instance
-  - `RedisRateLimiter` - Distributed
-- **Response Headers**:
-  - `X-RateLimit-Limit`
-  - `X-RateLimit-Remaining`
-  - `X-RateLimit-Reset`
-  - `Retry-After` (on 429)
-- **HTTP 429** when limit exceeded
+## Middleware Details
 
 ### RequestIdMiddleware (`app/middleware/request_id.py`)
-- **Purpose**: Add request tracing ID
-- **Header**: `X-Request-ID`
-- **Traceparent**: W3C traceparent format for distributed tracing
-- **Used in**: All logging for request correlation
 
-### SessionMiddleware (Starlette)
-- Added for admin panel support
-- Not used in API routes
+**Purpose:** Assign unique identifiers to requests for tracing.
 
-## Authentication Middleware
+**Features:**
+- Generates UUID for each request
+- Adds `X-Request-ID` header to response
+- Logs request ID for correlation
 
-### require_api_key (`app/middleware/auth.py`)
-FastAPI dependency (not middleware):
-- Extracts Bearer token from Authorization header
-- Hashes token and looks up in database
-- Returns Student object
-- Raises HTTP 401 if invalid
+### RateLimitMiddleware (`app/middleware/rate_limit.py`)
 
-### require_admin (`app/middleware/auth.py`)
-- Validates ADMIN_TOKEN environment variable
-- Uses constant-time comparison (hmac.compare_digest)
-- Returns HTTP 401 if invalid
+**Purpose:** Token bucket rate limiting algorithm.
 
-## Error Handling Middleware
-Defined in `app/main.py` as exception handlers:
-- `QuotaExceededError` → HTTP 429
-- `AuthenticationError` → HTTP 401
-- `RuleViolationError` → HTTP 400
-- Global handler → HTTP 500 (no stack trace in production)
+**Configuration:**
+- `rate_limit_requests_per_minute`: Requests per minute
+- `rate_limit_burst_size`: Burst capacity
+- `rate_limit_fail_closed`: Deny when Redis unavailable
+
+**Behavior:**
+- Redis-backed for distributed rate limiting
+- Falls back to in-memory if Redis disabled
+- Returns 429 Too Many Requests when exceeded
+
+### AuthMiddleware (`app/middleware/auth.py`)
+
+**Purpose:** Authenticate and authorize students.
+
+**Features:**
+- Extracts student ID from headers/API key
+- Validates student exists in database
+- Attaches student to request state
+- Raises `AuthenticationError` on failure
+
+### RequestSizeMiddleware (`app/middleware/request_size.py`)
+
+**Purpose:** Prevent oversized requests.
+
+**Features:**
+- Checks Content-Length header
+- Validates against maximum size
+- Returns 413 Payload Too Large when exceeded
+
+### MetricsMiddleware (`app/api/metrics.py`)
+
+**Purpose:** Track request metrics.
+
+**Tracks:**
+- Request count by endpoint
+- Response time percentiles
+- Status code distribution
+- Active request count
 
 ## Configuration
+
+Middleware is configured in `app/main.py` within `create_app()`:
+
 ```python
-# From app/core/config.py
-rate_limit_requests_per_minute = 60
-rate_limit_burst_size = 10
-rate_limit_window_seconds = 60
-rate_limit_fail_closed = False  # Allow requests when Redis unavailable
-redis_enabled = False  # Use Redis for distributed rate limiting
+app.add_middleware(SessionMiddleware, secret_key=...)
+app.add_middleware(CORSMiddleware, ...)
+app.add_middleware(MetricsMiddleware)
+app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(AuthMiddleware)
+app.add_middleware(RequestSizeMiddleware)
 ```
+
+## Custom Exceptions
+
+Middleware raises specific exceptions:
+- `AuthenticationError`: Auth failures
+- `QuotaExceededError`: Quota limit exceeded
+- `RuleViolationError`: Content rule violation
+
+These are caught by exception handlers in `app/main.py`.

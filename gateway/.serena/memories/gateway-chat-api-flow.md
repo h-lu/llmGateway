@@ -1,72 +1,107 @@
-# Chat API Request Flow
+# Gateway Chat API Flow
 
-## Endpoint: `POST /v1/chat/completions`
+## API Endpoint (`app/api/chat.py`)
 
-## Detailed Flow
+### Main Endpoint: `POST /v1/chat/completions`
 
-### 1. Authentication & Authorization
-- `require_api_key` dependency extracts Bearer token from Authorization header
-- Token is hashed (SHA-256) and looked up in database
-- Returns `Student` object with quota information
+**Request Models:**
+- `ChatRequest`: Incoming chat request with validation
+  - `messages`: List of chat messages
+  - `model`: Model identifier
+  - `stream`: Enable streaming response
+  - `validate_messages()`: Custom validator
 
-### 2. Request Parsing
-```python
-messages = body.get("messages", [])
-model = body.get("model", "deepseek")
-max_tokens = body.get("max_tokens", 2048)
-stream = body.get("stream", False)
+**Response Models:**
+- `ChatMessage`: Standard chat message format
+
+### Flow Diagram
+
+```
+Request
+    │
+    ▼
+┌─────────────────────────────┐
+│ 1. Validate Request         │
+│    - Parse messages         │
+│    - Check model validity   │
+└─────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────┐
+│ 2. Check Student Quota      │ ← get_load_balancer_dependency()
+│    - Get student from DB    │
+│    - Check weekly quota     │
+│    - Reserve tokens         │
+└─────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────┐
+│ 3. Check & Reserve Quota    │ ← check_and_reserve_quota()
+│    - Apply usage count      │
+│    - Log to QuotaLog        │
+└─────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────┐
+│ 4. Evaluate Content Rules   │
+│    - Check block patterns   │
+│    - Check guide patterns   │
+└─────────────────────────────┘
+    │
+    ├─ BLOCKED ─► create_blocked_response()
+    │
+    ▼ ALLOWED
+┌─────────────────────────────┐
+│ 5. Route to Provider        │
+│    - Get from load balancer │
+│    - Handle streaming/non-   │
+│      streaming              │
+└─────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────┐
+│ 6. Handle Response          │
+│  - Streaming: generator     │
+│  - Non-streaming: full resp │
+└─────────────────────────────┘
+    │
+    ▼
+Response
 ```
 
-### 3. Rule Evaluation
-- `evaluate_prompt()` checks prompt against database rules
-- Rules have week ranges (e.g., "1-2", "3-6")
-- Actions: "blocked", "guided" (deprecated), or "allow"
-- Blocked requests return immediate response with custom message
+### Key Functions
 
-### 4. Weekly Prompt Injection
-- `get_weekly_prompt_service()` fetches prompt for current week
-- System prompt is prepended to messages
-- Supports progressive learning guidance
+**`check_student_quota(student_id: int)`**
+- Retrieves student from database
+- Checks `weekly_token_limit` vs used tokens
+- Raises `QuotaExceededError` if over limit
 
-### 5. Quota Check & Reservation
-- `check_and_reserve_quota()` uses distributed quota cache
-- First checks Redis (if enabled), falls back to database
-- Uses optimistic locking to prevent race conditions
-- Raises `QuotaExceededError` if insufficient quota
+**`check_and_reserve_quota(student_id: int, input_tokens: int)`**
+- Applies usage via `apply_usage()` from `app/services/quota.py`
+- Creates `QuotaLog` entry
 
-### 6. Provider Selection (with Failover)
-- Load balancer selects provider based on strategy
-- Up to `MAX_FAILOVER_ATTEMPTS` (default 3) retries on failure
-- Failed providers are marked unhealthy immediately
+**`handle_streaming_response()`**
+- Generator function for SSE streaming
+- Handles failover on provider errors
+- Max failover attempts: `MAX_FAILOVER_ATTEMPTS`
 
-### 7. Request Processing
+**`handle_non_streaming_response()`**
+- Waits for complete response
+- Similar failover logic
 
-#### Non-Streaming (`stream=False`)
-- `handle_non_streaming_response()` calls provider
-- Token counting on response
-- Logs conversation asynchronously via background task
+**`create_blocked_response(rule_violation: str)`**
+- Returns formatted block response
+- Includes rule violation message
 
-#### Streaming (`stream=True`)
-- `handle_streaming_response()` uses `provider.stream_chat()`
-- Token counting with `TokenCounter` for incremental counting
-- SSE buffering (4KB) for efficient transmission
-- Error handling: JSON decode errors logged but non-fatal
-- Upstream errors return safe error messages (no sensitive data)
+### Error Handlers
 
-### 8. Response
-- Includes `X-Request-ID` header for tracing
-- Rate limit headers added by middleware
-- `traceparent` header for distributed tracing
+- `quota_exceeded_handler`: Catches `QuotaExceededError`
+- `auth_error_handler`: Catches `AuthenticationError`
+- `rule_violation_handler`: Catches `RuleViolationError`
+- `global_exception_handler`: Catches all other exceptions
 
-## Error Handling
-- `QuotaExceededError` → HTTP 429 with remaining quota info
-- `AuthenticationError` → HTTP 401
-- `RuleViolationError` → HTTP 400 with rule details
-- Upstream errors → HTTP 502/504/503
-- Unhandled exceptions → HTTP 500 (no stack trace in production)
+### Dependencies
 
-## Async Logging
-- `AsyncConversationLogger` buffers logs (default 100 entries)
-- Flushes every 5 seconds or when buffer is full
-- Dead letter queue at `/tmp/gateway_failed_logs.jsonl` for failures
-- Batch inserts with quota adjustments
+- `get_load_balancer_dependency()`: FastAPI dependency for load balancer
+- Database session for student/quota queries
+- Rule service for content evaluation

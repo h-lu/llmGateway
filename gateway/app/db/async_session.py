@@ -49,27 +49,29 @@ def get_async_engine(database_url: str | None = None) -> AsyncEngine:
 
     # asyncpg-specific connection arguments for performance
     # Reference: https://magicstack.github.io/asyncpg/current/api/index.html
+    # Note: SQLAlchemy's asyncpg dialect only supports limited parameters
     connect_args = {
         "command_timeout": settings.db_command_timeout,
-        "max_cached_statement_lifetime": 0,  # 0 means no limit
-        # Note: prepared_statement_cache_size is set via server_settings in DSN or after connect
+        "max_cached_statement_lifetime": settings.db_max_cached_statement_lifetime,
+        # max_queries and max_inactive_connection_lifetime are handled by pool_recycle instead
     }
 
     engine = create_async_engine(
         url,
         echo=False,
         future=True,
-        pool_size=settings.db_pool_size,
-        max_overflow=settings.db_max_overflow,
+        pool_size=settings.db_pool_min_size,  # Acts as min_size in SQLAlchemy
+        max_overflow=settings.db_pool_max_size - settings.db_pool_min_size,  # Calculate overflow
         pool_timeout=settings.db_pool_timeout,
         pool_recycle=settings.db_pool_recycle,
-        pool_pre_ping=settings.db_pool_pre_ping,  # Configurable, default False for performance
+        pool_pre_ping=settings.db_pool_pre_ping,
         connect_args=connect_args,
     )
     logger.info(
-        f"Created async engine (pool_size={settings.db_pool_size}, "
-        f"max_overflow={settings.db_max_overflow}, "
-        f"pool_timeout={settings.db_pool_timeout}s)"
+        f"Created async engine (min_size={settings.db_pool_min_size}, "
+        f"max_size={settings.db_pool_max_size}, "
+        f"pool_timeout={settings.db_pool_timeout}s, "
+        f"max_queries={settings.db_max_queries})"
     )
     return engine
 

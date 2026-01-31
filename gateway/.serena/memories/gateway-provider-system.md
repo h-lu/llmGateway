@@ -1,92 +1,92 @@
 # Gateway Provider System
 
-## Architecture
-The provider system enables multi-AI-provider support with load balancing and failover.
+## Overview
+The provider system implements a multi-provider architecture with health checking, load balancing, and failover capabilities.
 
-## Core Components
+## Base Provider (`app/providers/base.py`)
 
-### BaseProvider (`app/providers/base.py`)
-Abstract base class defining the provider interface:
-- `chat_completion(payload, traceparent)` - Non-streaming request
-- `stream_chat(payload, traceparent)` - Streaming with async generator
-- `health_check(timeout)` - Health status check
-- Accepts shared `httpx.AsyncClient` for connection pooling
+### BaseProvider Class
+Abstract base class for all providers.
 
-### ProviderFactory (`app/providers/factory.py`)
-Factory pattern for creating provider instances:
-- `create_provider(provider_type)` - Create specific provider
-- `create_primary_provider()` - Get highest priority provider
-- `get_fallback_providers()` - Get backup providers sorted by priority
-- Loads config from environment variables (DEEPSEEK_API_KEY, OPENAI_API_KEY)
-- Singleton instance: `get_provider_factory()`
+**Key Methods:**
+- `chat_completion()`: Non-streaming chat completion
+- `stream_chat()`: Streaming chat completion
+- `health_check()`: Provider health verification
+- `with_retry()`: Retry logic wrapper
 
-### LoadBalancer (`app/providers/loadbalancer.py`)
-Distributes requests across multiple providers:
-- **Strategies**:
-  - `round_robin` - Cycle through providers
-  - `weighted` - Random selection weighted by priority
-  - `health_first` - Only use healthy providers
-- `register_provider(provider, name, weight)` - Add provider
-- `get_provider()` - Get next provider based on strategy
-- Singleton instance: `get_load_balancer()`
+**Dependencies:**
+- Uses shared httpx HTTP client from `app/core/http_client.py`
+- Automatic retry with exponential backoff via `app/providers/retry.py`
 
-### ProviderHealthChecker (`app/providers/health.py`)
-Background health checking for all providers:
-- Checks all providers every 30 seconds (configurable)
-- Tracks health status in memory
-- `mark_unhealthy(name)` - Immediately mark provider as failed
-- `is_healthy(name)` - Check health status
-- Auto-starts on application startup
+## Provider Factory (`app/providers/factory.py`)
 
-### Retry Policy (`app/providers/retry.py`)
-Exponential backoff retry decorator:
-- Default: 3 retries with exponential backoff
-- Configurable max_retries, base_delay, max_delay
-- Used via `@BaseProvider.with_retry()` decorator
+### ProviderFactory Class
+Manages provider creation and configuration.
+
+**Key Methods:**
+- `create_provider()`: Instantiate provider by type
+- `create_primary_provider()`: Get main provider
+- `get_fallback_providers()`: Get backup providers for failover
+- `is_provider_configured()`: Check if provider has valid credentials
+
+### Provider Types
+- `deepseek`: DeepSeek API provider
+- `openai`: OpenAI API provider
+- `mock`: Mock provider for testing
+
+### Module Functions
+- `get_provider_factory()`: Get singleton factory instance
+- `get_health_checker()`: Get health checker instance
+- `get_load_balancer()`: Get load balancer instance
+
+## Load Balancer (`app/providers/loadbalancer.py`)
+
+### LoadBalanceStrategy Enum
+- `ROUND_ROBIN`: Distribute requests evenly
+- `WEIGHTED`: Weighted distribution based on configured weights
+- `HEALTH_FIRST`: Prioritize healthy providers
+
+### LoadBalancer Class
+**Key Methods:**
+- `register_provider()`: Add a provider to the pool
+- `unregister_provider()`: Remove a provider
+- `get_provider()`: Get next provider based on strategy
+- `get_available_providers()`: Get all non-unavailable providers
+- `get_healthy_providers()`: Get only healthy providers
+
+## Health Checker (`app/providers/health.py`)
+
+### HealthChecker Class
+Monitors provider health with periodic checks.
+
+**Key Features:**
+- Configurable check interval
+- Tracks consecutive failures
+- Marks providers as unhealthy after threshold
+- Auto-recovery when provider responds
 
 ## Provider Implementations
 
-### DeepSeekProvider (`app/providers/deepseek.py`)
-- Base URL: `https://api.deepseek.com/v1`
-- Compatible with OpenAI API format
-- Supports streaming responses
+### OpenAI Provider (`app/providers/openai.py`)
+Implements OpenAI-compatible API with:
+- Standard chat completions endpoint
+- Streaming support
+- API key authentication
 
-### OpenAIProvider (`app/providers/openai.py`)
-- Base URL: `https://api.openai.com/v1`
-- OpenAI organization support
-- Supports streaming responses
+### DeepSeek Provider (`app/providers/deepseek.py`)
+Implements DeepSeek API with:
+- Compatible with OpenAI format
+- Custom base URL support
 
-### MockProvider (`app/providers/mock.py`)
-- Testing provider that returns fixed responses
-- No network calls
-- Useful for testing without API keys
+### Mock Provider (`app/providers/mock.py`)
+For testing and development:
+- Returns predefined responses
+- No external API calls
+- Configurable delay simulation
 
-## Configuration
-Environment variables:
-```
-DEEPSEEK_API_KEY=sk-xxx
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-DEEPSEEK_PRIORITY=1
-DEEPSEEK_ENABLED=true
+## Retry Logic (`app/providers/retry.py`)
 
-OPENAI_API_KEY=sk-xxx
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_PRIORITY=2
-
-TEACHPROXY_MOCK_PROVIDER=true  # Force mock mode
-```
-
-## Usage Example
-```python
-from gateway.app.providers.factory import get_load_balancer
-
-lb = get_load_balancer(http_client)  # Uses shared HTTP client
-provider = await lb.get_provider()   # Selects based on strategy
-response = await provider.chat_completion(payload)
-```
-
-## Failover Flow
-1. Try primary provider from load balancer
-2. On HTTP error/timeout/mark unhealthy, try next provider
-3. Repeat up to `MAX_FAILOVER_ATTEMPTS` times
-4. Return 503 if all providers fail
+Exponential backoff retry mechanism:
+- Configurable max attempts
+- Increasing delays between retries
+- Jitter for thundering herd prevention

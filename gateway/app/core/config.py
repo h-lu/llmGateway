@@ -24,21 +24,18 @@ class Settings(BaseSettings):
     db_name: str = "teachproxy"
     db_test_name: str = "teachproxy_test"
 
-    # Connection pool settings - optimized for high concurrency
-    # Context7 Best Practice: max_overflow=-1 allows unlimited connections under burst load
-    db_pool_size: int = 50           # Base pool size
-    db_max_overflow: int = -1        # -1 = unlimited overflow (critical for 200+ concurrency)
-    db_pool_timeout: int = 5         # Aggressive timeout to fail fast and retry
-    db_pool_recycle: int = 1800      # Recycle every 30 minutes (was 1 hour)
-    db_pool_pre_ping: bool = True    # Re-enable to detect stale connections
-    
+    # Connection pool settings - aligned with asyncpg best practices
+    db_pool_min_size: int = 10                  # Warm connections to maintain (asyncpg min_size)
+    db_pool_max_size: int = 50                  # Maximum connections (SQLAlchemy pool_size + max_overflow)
+    db_pool_timeout: int = 30                   # Seconds to wait for connection (increased from 5s)
+    db_pool_recycle: int = 300                  # Recycle every 5 minutes (reduced from 30min)
+    db_pool_pre_ping: bool = True               # Detect stale connections before use
+
     # asyncpg specific optimizations
-    db_command_timeout: float = 30.0           # Reduced from 60s for faster timeout
-    db_max_prepared_statements: int = 1000     # Prepared statement cache
-    
-    # Rate limiting - increased for stress testing
-    rate_limit_requests_per_minute: int = 10000
-    rate_limit_burst_size: int = 2000          # Increased burst capacity
+    db_command_timeout: float = 30.0            # Per-command timeout in seconds
+    db_max_queries: int = 50000                 # Recycle connection after 50K queries
+    db_max_inactive_connection_lifetime: float = 300.0  # Recycle idle connections after 5 minutes
+    db_max_cached_statement_lifetime: int = 0   # No limit on prepared statement cache
 
     @property
     def database_url(self) -> str:
@@ -53,7 +50,7 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.db_user}:{self.db_password}@"
             f"{self.db_host}:{self.db_port}/{self.db_name}"
         )
-    
+
     # DeepSeek settings
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
@@ -116,7 +113,7 @@ class Settings(BaseSettings):
             raise ValueError("Rate limit values must be at least 1")
         return v
 
-    @field_validator('db_pool_size')
+    @field_validator('db_pool_min_size', 'db_pool_max_size')
     @classmethod
     def validate_pool_size_positive(cls, v: int) -> int:
         """Validate pool_size is positive."""
@@ -124,12 +121,13 @@ class Settings(BaseSettings):
             raise ValueError("db_pool_size must be at least 1")
         return v
 
-    @field_validator('db_max_overflow')
+    @field_validator('db_pool_max_size')
     @classmethod
-    def validate_max_overflow(cls, v: int) -> int:
-        """Validate max_overflow is -1 (unlimited) or positive."""
-        if v < -1:
-            raise ValueError("db_max_overflow must be -1 (unlimited) or >= 0")
+    def validate_max_size_at_least_min(cls, v: int, info) -> int:
+        """Validate max_size is at least min_size."""
+        min_size = info.data.get('db_pool_min_size', 10)
+        if v < min_size:
+            raise ValueError(f"db_pool_max_size ({v}) must be at least db_pool_min_size ({min_size})")
         return v
 
     @field_validator('httpx_timeout', 'httpx_connect_timeout', 'httpx_read_timeout')

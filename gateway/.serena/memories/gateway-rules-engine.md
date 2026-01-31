@@ -1,94 +1,129 @@
 # Gateway Rules Engine
 
-## Purpose
-Content filtering system to guide student learning behavior by blocking or modifying requests based on prompt patterns.
-
-## Database Model
-```python
-class Rule(Base):
-    id: int
-    pattern: str          # Regex pattern to match
-    rule_type: str        # "block" or "guide"
-    message: str          # Response message or guidance
-    active_weeks: str     # Week range like "1-2" or "3-6"
-    enabled: bool         # Active/inactive
-```
-
-## Rule Types
-
-### Block Rules (`rule_type = "block"`)
-- Immediately returns a blocking message
-- No API call is made
-- Logged with action="blocked"
-- Example: Block direct "write code" requests in early weeks
-
-### Guide Rules (Deprecated)
-- Originally prepended guidance to system prompt
-- Now replaced by `WeeklySystemPrompt` feature
-- Kept for backward compatibility
+## Overview
+The rules engine evaluates user prompts against configurable regex patterns to block or guide content.
 
 ## Rule Service (`app/services/rule_service.py`)
 
-### Key Functions
-
-#### `evaluate_prompt(prompt: str, week_number: int) → RuleResult`
+### RuleResult Class
 ```python
 class RuleResult:
-    action: str      # "allow", "blocked", "guided"
-    message: str | None
-    rule_id: int | None
+    blocked: bool          # If True, content is blocked
+    guide: str | None      # Guidance message if applicable
+    matched_pattern: str   # The regex that matched
 ```
 
-Flow:
-1. Load all enabled rules from database
-2. Filter rules where `week_number` is in `active_weeks`
-3. Match prompt against each rule's pattern (regex)
-4. Return first matching rule's result
-5. If no match, return `RuleResult(action="allow")`
+### RuleService Class
 
-#### `parse_week_range(range_str: str) → list[int]`
-Parses week range strings:
-- `"1-3"` → `[1, 2, 3]`
-- `"5"` → `[5]`
-- `"1-2,4-5"` → `[1, 2, 4, 5]`
+**Core Methods:**
 
-#### `is_week_in_range(week_number: int, range_str: str) → bool`
-Check if week is in the rule's active range.
+**`evaluate_prompt(prompt: str) -> RuleResult`**
+Synchronous evaluation of prompt against rules.
 
-## Rule Matching Rules
-1. Rules are evaluated in database ID order
-2. First matching rule wins (short-circuit)
-3. Regex patterns are case-sensitive
-4. Pattern matching uses Python `re.search()`
+**`evaluate_prompt_async(prompt: str) -> Coroutine[RuleResult]`**
+Async version of evaluation.
 
-## Example Rules
-```sql
--- Block "give me code" requests in weeks 1-2
-INSERT INTO rules (pattern, rule_type, message, active_weeks, enabled)
-VALUES ('.*给我.*代码.*|.*write.*code.*', 'block', 
-        '请先描述问题，不要直接要代码', '1-2', true);
+**`get_rules() -> List[Rule]`**
+Get all rules from database or cache.
 
--- Guide requests in weeks 3-6 (deprecated)
-INSERT INTO rules (pattern, rule_type, message, active_weeks, enabled)
-VALUES ('.*help.*', 'guide', 
-        'Remember to explain your thinking first', '3-6', true);
+**`get_rules_async() -> Coroutine[List[Rule]]`**
+Async version of get_rules.
+
+**`reload_rules()`**
+Reload rules from database, invalidate cache.
+
+**`reload_rules_async()`**
+Async version of reload.
+
+### Hardcoded Rules
+
+**BLOCK_PATTERNS**
+Default patterns that block content:
+- Direct answer requests
+- Code solution requests without learning
+- Homework completion requests
+
+**GUIDE_PATTERNS**
+Patterns that provide guidance:
+- Requests for hints
+- Learning-oriented questions
+- Concept explanation requests
+
+## Database Model
+
+### Rule Model
+```python
+class Rule(Base):
+    id: Integer (PK)
+    name: String
+    pattern: String        # Regex pattern
+    is_active: Boolean
+    rule_type: Enum        # BLOCK or GUIDE
+    created_at: DateTime
 ```
 
-## Weekly System Prompts (Preferred)
-Modern approach uses `WeeklySystemPrompt` table instead of guide rules:
-- `week_start`, `week_end` - Week range
-- `system_prompt` - Full system prompt
-- Injected via `inject_weekly_system_prompt()`
-- Supports progressive learning
+## Evaluation Process
 
-## Backward Compatibility
-- Old hardcoded `BLOCK_PATTERNS` and `GUIDE_PATTERNS` kept as fallback
-- Database rules take precedence over hardcoded patterns
-- `app/services/rules.py` re-exports from `rule_service.py`
+1. Load rules from database (cached in memory)
+2. Compile regex patterns with timeout protection
+3. Evaluate prompt against patterns in order
+4. Return first matching result
+5. If no match, content is allowed
 
-## Configuration
-Rules are stored in database, managed via admin API:
-- `GET /api/rules` - List all rules
-- `POST /api/rules` - Create rule
-- `PUT /api/rules/{id}` - Update rule
-- `DELETE /api/rules/{id}` - Delete rule
+## Timeout Protection
+
+**`REGEX_TIMEOUT_SECONDS`:** 5 seconds maximum per regex evaluation
+
+Prevents ReDoS (Regular Expression Denial of Service) attacks by:
+- Running regex in separate thread
+- Timeout after configured seconds
+- Failing closed on timeout
+
+## Cache Strategy
+
+- Rules cached in memory after first load
+- Cache invalidated on `reload_rules()` call
+- Prevents database queries on every request
+
+## Integration with Chat API
+
+In `app/api/chat.py`:
+```python
+result = rule_service.evaluate_prompt(prompt)
+if result.blocked:
+    return create_blocked_response(result.matched_pattern)
+```
+
+## Module Functions
+
+**`parse_week_range(week_str: str) -> Tuple[int, int]`
+Parse "week X-Y" format.
+
+**`is_week_in_range(week: int, week_range: str) -> bool`
+Check if week is in range.
+
+**`evaluate_prompt(prompt: str) -> RuleResult`**
+Convenience function using default service.
+
+**`evaluate_prompt_async(prompt: str) -> Coroutine[RuleResult]`**
+Async convenience function.
+
+**`reload_rules()`**
+Reload rules from database.
+
+**`reload_rules_async()`**
+Async reload function.
+
+## Safety Features
+
+1. **Catastrophic Pattern Detection**
+   - Detects potentially dangerous regex patterns
+   - Warns or blocks patterns that could cause ReDoS
+
+2. **Safe Pattern Compilation**
+   - Timeout-protected regex compilation
+   - Error handling for invalid patterns
+
+3. **Fail Closed**
+   - On evaluation error, defaults to blocking
+   - Prevents bypassing filters via malformed input

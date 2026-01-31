@@ -83,14 +83,40 @@ def create_http_client(**kwargs) -> httpx.AsyncClient:
     This is useful for creating custom clients when the shared client
     is not appropriate (e.g., for testing or special use cases).
     
+    Note: The returned client should be closed when done:
+        async with create_http_client() as client:
+            # use client
+            pass
+    
     Args:
-        **kwargs: Override default settings.
+        **kwargs: Override default settings. Can include:
+            - timeout: Single timeout value (overrides all granular timeouts)
+            - connect_timeout: Connection timeout
+            - read_timeout: Read timeout
+            - write_timeout: Write timeout
+            - pool_timeout: Pool acquisition timeout
+            - max_connections: Maximum connections
+            - max_keepalive_connections: Maximum keepalive connections
+            - keepalive_expiry: Keepalive expiration time
         
     Returns:
-        A new httpx.AsyncClient instance.
+        A new httpx.AsyncClient instance with granular timeout configuration.
     """
+    # Use granular timeouts for consistency with init_http_client()
+    # Allow single timeout override for backward compatibility
+    timeout_override = kwargs.get("timeout")
+    if timeout_override is not None:
+        timeout = httpx.Timeout(timeout_override)
+    else:
+        timeout = httpx.Timeout(
+            connect=kwargs.get("connect_timeout", settings.httpx_connect_timeout),
+            read=kwargs.get("read_timeout", settings.httpx_read_timeout),
+            write=kwargs.get("write_timeout", settings.httpx_write_timeout),
+            pool=kwargs.get("pool_timeout", settings.httpx_pool_timeout),
+        )
+    
     config = {
-        "timeout": kwargs.get("timeout", settings.httpx_timeout),
+        "timeout": timeout,
         "limits": httpx.Limits(
             max_connections=kwargs.get("max_connections", settings.httpx_max_connections),
             max_keepalive_connections=kwargs.get(

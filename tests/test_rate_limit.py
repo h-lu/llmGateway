@@ -161,8 +161,10 @@ class TestRedisRateLimiter:
     async def test_redis_limiter_allows_when_available(self):
         """Test that Redis limiter allows requests when available."""
         mock_redis = AsyncMock()
-        mock_redis.pipeline.return_value = mock_redis
-        mock_redis.execute.return_value = [0, 1, 1, 1]  # zrem, zcard, zadd, expire
+        # pipeline() is called synchronously, so we use regular Mock for it
+        mock_pipeline = Mock()
+        mock_pipeline.execute = AsyncMock(return_value=[0, 1, 1, 1])  # zrem, zcard, zadd, expire
+        mock_redis.pipeline = Mock(return_value=mock_pipeline)
         
         limiter = RedisRateLimiter(redis_client=mock_redis)
         result = await limiter.is_allowed("test_key")
@@ -173,7 +175,9 @@ class TestRedisRateLimiter:
     async def test_redis_limiter_fail_open_on_error(self):
         """Test that Redis limiter fails open on errors."""
         mock_redis = AsyncMock()
-        mock_redis.pipeline.side_effect = Exception("Redis error")
+        mock_pipeline = Mock()
+        mock_pipeline.execute = AsyncMock(side_effect=Exception("Redis error"))
+        mock_redis.pipeline = Mock(return_value=mock_pipeline)
         
         limiter = RedisRateLimiter(redis_client=mock_redis)
         result = await limiter.is_allowed("test_key")
@@ -218,7 +222,7 @@ class TestRateLimitMiddleware:
         
         key = middleware._get_client_key(request)
         # IP should be hashed, not plaintext
-        expected_hash = hashlib.sha256("192.168.1.1".encode()).hexdigest()[:16]
+        expected_hash = hashlib.sha256("192.168.1.1".encode()).hexdigest()[:32]
         assert key == f"ratelimit:ip:{expected_hash}"
         assert "192.168.1.1" not in key  # Raw IP should not appear
     
@@ -231,6 +235,6 @@ class TestRateLimitMiddleware:
         
         key = middleware._get_client_key(request)
         # First IP from X-Forwarded-For should be hashed
-        expected_hash = hashlib.sha256("10.0.0.1".encode()).hexdigest()[:16]
+        expected_hash = hashlib.sha256("10.0.0.1".encode()).hexdigest()[:32]
         assert key == f"ratelimit:ip:{expected_hash}"
         assert "10.0.0.1" not in key  # Raw IP should not appear
