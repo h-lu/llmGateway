@@ -513,7 +513,6 @@ async def chat_completions(
     
     This separation ensures fast non-streaming requests are not blocked by
     long-running streaming connections, improving P50 latency.
-    """Handle chat completion requests.
     
     This endpoint:
     1. Validates the API key and checks quota
@@ -522,7 +521,7 @@ async def chat_completions(
     4. Saves the conversation and updates quota (async via background tasks)
     
     Note: Database session is managed internally to ensure streaming responses
-    don't hold connections for extended periods.
+    do not hold connections for extended periods.
     
     Args:
         request: The incoming request
