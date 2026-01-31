@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from gateway.app.core.config import settings
+from gateway.app.core.async_logging import setup_async_logging, AsyncHandlerWrapper
 
 
 class JSONFormatter(logging.Formatter):
@@ -230,9 +231,16 @@ def get_logging_config() -> Dict[str, Any]:
 
 
 def setup_logging() -> None:
-    """Configure logging for the application."""
+    """Configure logging for the application with async support."""
     config = get_logging_config()
     logging.config.dictConfig(config)
+    
+    # Setup async logging to reduce I/O blocking
+    setup_async_logging()
+    
+    # Reduce noise from third-party libraries
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 
 def get_logger(name: str = "gateway") -> logging.Logger:
