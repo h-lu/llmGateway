@@ -1,3 +1,5 @@
+import asyncio
+import gc
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
 
@@ -12,6 +14,7 @@ from gateway.app.api.metrics import router as metrics_router, MetricsMiddleware
 from gateway.app.api.weekly_prompts import router as weekly_prompts_router
 from gateway.app.core.http_client import init_http_client
 from gateway.app.core.logging import get_logger, setup_logging
+from gateway.app.core.gc_optimizer import gc_optimizer, setup_gc_optimization
 from gateway.app.db.async_session import close_async_engine
 from gateway.app.db.init_db import init_database, verify_connection
 from gateway.app.db.async_session import warmup_connection_pool
@@ -20,8 +23,12 @@ from gateway.app.core.config import settings
 from gateway.app.exceptions import AuthenticationError, QuotaExceededError, RuleViolationError
 from gateway.app.middleware.rate_limit import RateLimitMiddleware
 from gateway.app.middleware.request_id import RequestIdMiddleware
+from gateway.app.middleware.gc_stats import GCStatsMiddleware
 from gateway.app.services.async_logger import get_async_logger
 from gateway.app.providers.factory import get_health_checker
+
+# Setup GC optimization at module load time
+setup_gc_optimization()
 
 
 def create_app() -> FastAPI:
@@ -65,6 +72,17 @@ def create_app() -> FastAPI:
             health_checker = get_health_checker()
             await health_checker.start()
 
+            # Periodic GC during idle time to prevent memory pressure
+            async def periodic_gc() -> None:
+                """Run GC periodically during idle time."""
+                while True:
+                    await asyncio.sleep(30)
+                    collected = gc_optimizer.idle_collection()
+                    if collected > 0:
+                        logger.debug(f"GC collected {collected} objects during idle")
+
+            gc_task = asyncio.create_task(periodic_gc())
+
             logger.info(
                 "Application startup complete",
                 extra={
@@ -77,6 +95,12 @@ def create_app() -> FastAPI:
             yield {"http_client": http_client}
         
         # Shutdown: Stop health checker, flush conversation logs, and close database
+        gc_task.cancel()
+        try:
+            await gc_task
+        except asyncio.CancelledError:
+            pass
+        
         health_checker = get_health_checker()
         await health_checker.stop()
         
@@ -88,6 +112,9 @@ def create_app() -> FastAPI:
         cache = get_cache()
         if hasattr(cache, 'close'):
             await cache.close()
+        
+        # Final GC collection before shutdown
+        gc.collect()
         
         await close_async_engine()
         
@@ -133,6 +160,10 @@ def create_app() -> FastAPI:
     
     # Request ID middleware for tracing (innermost - closest to route)
     app.add_middleware(RequestIdMiddleware)
+    
+    # GC Stats middleware - disables GC during request processing
+    # (innermost - right before route handlers)
+    app.add_middleware(GCStatsMiddleware)
     
     # Include routers
     app.include_router(chat_router)
