@@ -565,6 +565,7 @@ async def chat_completions(
     # Request Router: Acquire slot based on request type
     # This separates streaming and normal requests for better P50 latency
     request_router = get_request_router()
+    slot_acquired = False
     
     if stream:
         acquired = await request_router.acquire_streaming_slot()
@@ -595,10 +596,14 @@ async def chat_completions(
     
     try:
         # Evaluate against rule engine
-    week_number = get_current_week_number()
-    result = await evaluate_prompt_async(prompt, week_number=week_number)
+        week_number = get_current_week_number()
+        result = await evaluate_prompt_async(prompt, week_number=week_number)
+    except Exception as e:
+        logger.warning(f"Rule evaluation failed: {e}", extra={"request_id": request_id})
+        # Continue without rule evaluation
+        result = None
     
-    if result.action == "blocked":
+    if result and result.action == "blocked":
         logger.info(
             "Request blocked by rule",
             extra={
@@ -805,6 +810,6 @@ async def chat_completions(
         # Release the request router slot
         if slot_acquired:
             if stream:
-                request_router.release_streaming_slot()
+                await request_router.release_streaming_slot()
             else:
-                request_router.release_normal_slot()
+                await request_router.release_normal_slot()
