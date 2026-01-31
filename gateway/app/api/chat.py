@@ -31,6 +31,7 @@ from gateway.app.services.async_logger import (
     ConversationLogData,
     get_async_logger,
 )
+from gateway.app.services.request_router import get_request_router
 
 # Maximum failover attempts for provider failures (from configuration)
 MAX_FAILOVER_ATTEMPTS = settings.max_failover_attempts
@@ -503,6 +504,15 @@ async def chat_completions(
     async_logger: AsyncConversationLogger = Depends(get_async_logger),
     load_balancer: LoadBalancer = Depends(get_load_balancer_dependency),
 ) -> StreamingResponse | JSONResponse:
+    """Handle chat completion requests with request routing.
+    
+    This endpoint uses a RequestRouter to separate streaming and non-streaming
+    requests into different concurrency pools:
+    - Streaming: Limited to 50 concurrent connections
+    - Normal: Allows 200 concurrent requests (fast, high priority)
+    
+    This separation ensures fast non-streaming requests are not blocked by
+    long-running streaming connections, improving P50 latency.
     """Handle chat completion requests.
     
     This endpoint:
@@ -553,7 +563,39 @@ async def chat_completions(
     temperature = chat_request.temperature
     stream = chat_request.stream
     
-    # Evaluate against rule engine
+    # Request Router: Acquire slot based on request type
+    # This separates streaming and normal requests for better P50 latency
+    request_router = get_request_router()
+    
+    if stream:
+        acquired = await request_router.acquire_streaming_slot()
+        slot_type = "streaming"
+    else:
+        acquired = await request_router.acquire_normal_slot()
+        slot_type = "normal"
+    
+    if not acquired:
+        logger.warning(
+            f"Request rejected: {slot_type} capacity exceeded",
+            extra={
+                "student_id": student.id,
+                "request_id": request_id,
+                "slot_type": slot_type
+            }
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "capacity_exceeded",
+                "message": f"{slot_type.capitalize()} request capacity exceeded. Please retry later."
+            }
+        )
+    
+    # Track slot for release in finally block
+    slot_acquired = True
+    
+    try:
+        # Evaluate against rule engine
     week_number = get_current_week_number()
     result = await evaluate_prompt_async(prompt, week_number=week_number)
     
@@ -759,3 +801,11 @@ async def chat_completions(
                     extra={"request_id": request_id, "student_id": student.id}
                 )
         raise
+    
+    finally:
+        # Release the request router slot
+        if slot_acquired:
+            if stream:
+                request_router.release_streaming_slot()
+            else:
+                request_router.release_normal_slot()

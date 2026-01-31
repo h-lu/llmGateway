@@ -16,6 +16,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from gateway.app.core.config import settings
 from gateway.app.core.logging import get_logger
 from gateway.app.middleware.auth import require_admin
+from gateway.app.services.request_router import get_request_router
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -274,6 +275,26 @@ async def gateway_stats(admin=Depends(require_admin)) -> dict[str, Any]:
     """
     collector = get_metrics_collector()
     return await collector.get_summary()
+
+
+@router.get("/metrics/router")
+async def get_router_stats(admin=Depends(require_admin)) -> dict[str, Any]:
+    """Request router statistics (admin only).
+    
+    Provides real-time visibility into streaming vs normal request
+    capacity utilization and rejection rates.
+    
+    Args:
+        admin: Admin user (injected via dependency)
+        
+    Returns:
+        JSON response with router statistics including:
+        - Active requests per type
+        - Capacity limits and utilization
+        - Total processed and rejected counts
+    """
+    router = get_request_router()
+    return router.get_stats()
 
 
 class MetricsMiddleware:
