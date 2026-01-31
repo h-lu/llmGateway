@@ -103,15 +103,76 @@ def mock_redis():
         redis.data.pop(key, None)
         redis.ttls.pop(key, None)
         return 1
-    
+
+    async def mock_eval(script, num_keys, *args):
+        """Mock Redis Lua script execution for CHECK_AND_CONSUME_SCRIPT.
+
+        Simulates the atomic check-and-consume operation:
+        - ARGV[1]: current_week_quota
+        - ARGV[2]: tokens_needed
+        - ARGV[3]: ttl
+        - ARGV[4]: student_id
+        - ARGV[5]: week_number
+        - ARGV[6]: timestamp
+        - KEYS[1]: used_key (format: quota:used:{student_id}:{week_number})
+        - KEYS[2]: meta_key
+        """
+        # Parse arguments
+        if len(args) < 6:
+            return [0, 0, 0]
+
+        current_week_quota = int(args[0])
+        tokens_needed = int(args[1])
+        ttl = int(args[2])
+        student_id = str(args[3])
+        week_number = str(args[4])
+        now = args[5]
+
+        # Extract keys from args (after num_keys)
+        used_key = args[6] if len(args) > 6 else f"quota:used:{student_id}:{week_number}"
+        meta_key = args[7] if len(args) > 7 else f"quota:meta:{student_id}:{week_number}"
+
+        # Get current used value
+        current = redis.data.get(used_key)
+        current_used = int(current) if current else 0
+
+        # Check if quota is available
+        remaining = current_week_quota - current_used
+        if remaining < tokens_needed:
+            # Not enough quota
+            return [0, remaining, current_used]
+
+        # Atomically increment
+        new_used = current_used + tokens_needed
+        redis.data[used_key] = str(new_used)
+
+        # Set TTL if this is a new key
+        if current is None:
+            redis.ttls[used_key] = time.time() + ttl
+
+        # Update metadata
+        meta = redis.data.get(meta_key)
+        meta_table = json.loads(meta) if meta else {}
+        meta_table['quota'] = current_week_quota
+        meta_table['last_used'] = now
+        meta_table['student_id'] = student_id
+        meta_table['week_number'] = week_number
+        redis.data[meta_key] = json.dumps(meta_table)
+        redis.ttls[meta_key] = time.time() + ttl
+
+        # Return success
+        new_remaining = current_week_quota - new_used
+        return [1, new_remaining, new_used]
+
     redis.get = mock_get
     redis.setex = mock_setex
     redis.incrby = mock_incrby
     redis.decrby = mock_decrby
     redis.exists = mock_exists
     redis.delete = mock_delete
+    redis.eval = mock_eval
     redis.close = AsyncMock()
-    
+
     return redis
 
 
@@ -327,35 +388,45 @@ class TestDistributedQuotaServiceRedis:
     
     @pytest.mark.asyncio
     @patch("gateway.app.services.distributed_quota.get_student_by_id")
-    async def test_check_and_consume_with_redis_sufficient_quota(self, mock_get_student, mock_db_student):
-        """Test consuming quota when sufficient."""
+    async def test_check_and_consume_with_redis_sufficient_quota(self, mock_get_student, mock_db_student, mock_redis):
+        """Test consuming quota when sufficient.
+
+        With lazy initialization, Redis starts from 0 (not from DB value).
+        This ensures atomic operations without race conditions.
+        """
         mock_get_student.return_value = mock_db_student
-        
+
         success, remaining, used = await self.service._check_and_consume_with_redis(
             "test_student",
             current_week_quota=1000,
             tokens_needed=100,
             week_number=5,
         )
-        
+
         assert success is True
-        assert used == 200  # 100 (initial) + 100 (consumed)
-        assert remaining == 800
-    
+        # With lazy initialization: starts from 0, consumes 100
+        assert used == 100
+        assert remaining == 900
+
     @pytest.mark.asyncio
     @patch("gateway.app.services.distributed_quota.get_student_by_id")
-    async def test_check_and_consume_with_redis_insufficient_quota(self, mock_get_student, mock_db_student):
-        """Test consuming quota when insufficient."""
-        mock_db_student.used_quota = 950
+    async def test_check_and_consume_with_redis_insufficient_quota(self, mock_get_student, mock_db_student, mock_redis):
+        """Test consuming quota when insufficient.
+
+        Pre-populate Redis with 950 used to test insufficient quota scenario.
+        """
+        # Pre-populate Redis to test insufficient quota
+        mock_redis.data["quota:used:test_student:5"] = "950"
+        mock_redis.data["quota:meta:test_student:5"] = json.dumps({"quota": 1000})
         mock_get_student.return_value = mock_db_student
-        
+
         success, remaining, used = await self.service._check_and_consume_with_redis(
             "test_student",
             current_week_quota=1000,
             tokens_needed=100,  # Need 100, only 50 remaining
             week_number=5,
         )
-        
+
         assert success is False
         assert remaining == 50
         assert used == 950
@@ -731,22 +802,26 @@ class TestEdgeCases:
         """Test consuming exactly the remaining quota."""
         service = DistributedQuotaService(enable_sync=False)
         service._redis = mock_redis
-        
+
         mock_student = MagicMock()
         mock_student.used_quota = 900
         mock_student.current_week_quota = 1000
-        
+
         with patch("gateway.app.services.distributed_quota.get_student_by_id") as mock:
             mock.return_value = mock_student
-            
+
+            # Pre-populate Redis with 900 used
+            mock_redis.data["quota:used:student1:5"] = "900"
+            mock_redis.data["quota:meta:student1:5"] = json.dumps({"quota": 1000})
+
             # Try to consume exactly 100 (remaining quota)
             success, remaining, used = await service._check_and_consume_with_redis(
                 "student1", 1000, 100, 5
             )
-            
+
             assert success is True
             assert remaining == 0
-            assert used == 1000
+            assert used == 1000  # 900 (initial) + 100 (consumed)
 
 
 # ============================================================================

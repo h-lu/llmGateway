@@ -2,7 +2,8 @@ import hashlib
 import asyncio
 import os
 import time
-from typing import Dict, Optional, Tuple
+from collections import OrderedDict
+from typing import Optional, Tuple
 
 from fastapi import Depends, HTTPException, Request
 
@@ -10,10 +11,11 @@ from gateway.app.db.dependencies import SessionDep
 from gateway.app.db.crud import lookup_student_by_hash
 from gateway.app.db.models import Student
 
-# API Key 内存缓存 (LRU Cache)
+# API Key 内存缓存 (使用 OrderedDict 实现 LRU Cache)
 # 结构: {token_hash: (student_dict, timestamp)}
 # 注意: 缓存 dict 而不是 ORM 对象，避免 DetachedInstanceError
-_api_key_cache: Dict[str, Tuple[dict, float]] = {}
+# OrderedDict 保持插入顺序，支持 popitem(last=False) 移除最旧的条目
+_api_key_cache: OrderedDict[str, Tuple[dict, float]] = OrderedDict()
 _cache_ttl_seconds = 60  # 缓存 60 秒
 _cache_max_size = 10000  # 最大缓存条目
 _cache_lock = asyncio.Lock()  # 保护缓存的锁
@@ -22,6 +24,8 @@ _cache_lock = asyncio.Lock()  # 保护缓存的锁
 async def _get_cached_student(token_hash: str) -> Optional[Student]:
     """从缓存获取学生信息（线程安全）.
     
+    实现完整的 LRU 逻辑：访问时将条目移到末尾，保持访问顺序。
+    
     Returns:
         Student 对象或 None（如果缓存未命中或已过期）
     """
@@ -29,6 +33,11 @@ async def _get_cached_student(token_hash: str) -> Optional[Student]:
         if token_hash in _api_key_cache:
             student_dict, timestamp = _api_key_cache[token_hash]
             if time.time() - timestamp < _cache_ttl_seconds:
+                # LRU: 将访问的条目移到末尾（最近使用）
+                # 先删除再重新插入以保持插入顺序
+                value = _api_key_cache.pop(token_hash)
+                _api_key_cache[token_hash] = value
+                
                 # 从 dict 重建 Student 对象（不绑定到 Session）
                 student = Student(
                     id=student_dict['id'],
@@ -51,12 +60,21 @@ async def _cache_student(token_hash: str, student: Student) -> None:
     
     将 Student ORM 对象转换为 dict 存储，避免 Session 绑定问题。
     使用锁保护缓存操作，防止并发访问导致的竞争条件。
+    
+    LRU 实现：使用 OrderedDict，访问时移到末尾，驱逐时移除最旧的条目。
     """
     async with _cache_lock:
-        # LRU: 如果缓存满了，删除最旧的条目
+        # 如果 key 已存在，先删除（会在下面重新添加到末尾）
+        if token_hash in _api_key_cache:
+            del _api_key_cache[token_hash]
+        
+        # LRU: 如果缓存满了，删除最旧的条目（插入顺序的第一个）
         if len(_api_key_cache) >= _cache_max_size:
-            oldest_key = min(_api_key_cache, key=lambda k: _api_key_cache[k][1])
-            del _api_key_cache[oldest_key]
+            # 移除最旧的 20% 条目，减少驱逐频率
+            remove_count = max(1, int(_cache_max_size * 0.2))
+            for _ in range(remove_count):
+                if _api_key_cache:
+                    _api_key_cache.popitem(last=False)
         
         # 提取学生数据为 dict（避免缓存 ORM 对象）
         student_dict = {
@@ -157,10 +175,19 @@ async def require_api_key(
         
     Raises:
         HTTPException: 401 if API key is missing or invalid
+        HTTPException: 400 if API key is too long (DoS protection)
     """
     token = get_bearer_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Missing API key")
+    
+    # Validate API key length to prevent DoS via extremely long keys
+    # This must be done before hashing to prevent CPU exhaustion on long inputs
+    if len(token) > 512:
+        raise HTTPException(
+            status_code=400, 
+            detail="API key too long (max 512 characters)"
+        )
     
     # Hash the token
     token_hash = hashlib.sha256(token.encode()).hexdigest()

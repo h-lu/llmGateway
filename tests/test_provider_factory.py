@@ -20,6 +20,30 @@ from gateway.app.providers.factory import (
 from gateway.app.providers.openai import OpenAIProvider
 
 
+# Save original environment variables (excluding pytest's own vars)
+_ORIG_ENV = {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}
+
+
+def _reset_test_env():
+    """Reset environment to clean state for testing."""
+    # Clear provider-specific env vars only
+    for key in list(os.environ.keys()):
+        if key.startswith(("DEEPSEEK_", "OPENAI_", "ANTHROPIC_")):
+            del os.environ[key]
+    # Also clear mock provider mode to ensure proper config loading
+    os.environ.pop("TEACHPROXY_MOCK_PROVIDER", None)
+
+
+@pytest.fixture(autouse=True)
+def reset_env_and_factory():
+    """Reset environment and factory before each test."""
+    _reset_test_env()
+    reset_provider_factory()
+    yield
+    _reset_test_env()
+    reset_provider_factory()
+
+
 class TestProviderType:
     """Test ProviderType enum."""
     
@@ -99,15 +123,7 @@ class TestProviderConfig:
 
 class TestProviderFactory:
     """Test ProviderFactory."""
-    
-    def setup_method(self):
-        """Reset factory before each test."""
-        reset_provider_factory()
-    
-    def teardown_method(self):
-        """Reset factory after each test."""
-        reset_provider_factory()
-    
+
     @patch.dict(os.environ, {"DEEPSEEK_API_KEY": "test-key"})
     def test_create_deepseek_provider(self):
         """Test creating a DeepSeek provider."""
@@ -223,15 +239,7 @@ class TestProviderFactory:
 
 class TestGlobalFunctions:
     """Test global convenience functions."""
-    
-    def setup_method(self):
-        """Reset factory before each test."""
-        reset_provider_factory()
-    
-    def teardown_method(self):
-        """Reset factory after each test."""
-        reset_provider_factory()
-    
+
     def test_get_provider_factory_singleton(self):
         """Test factory singleton pattern."""
         factory1 = get_provider_factory()
@@ -264,15 +272,7 @@ class TestGlobalFunctions:
 
 class TestProviderWithHttpClient:
     """Test provider factory with shared HTTP client."""
-    
-    def setup_method(self):
-        """Reset factory before each test."""
-        reset_provider_factory()
-    
-    def teardown_method(self):
-        """Reset factory after each test."""
-        reset_provider_factory()
-    
+
     @patch.dict(os.environ, {"DEEPSEEK_API_KEY": "key"})
     def test_http_client_passed_to_provider(self):
         """Test that HTTP client is passed to created providers."""

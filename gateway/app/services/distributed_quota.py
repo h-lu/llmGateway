@@ -82,8 +82,10 @@ class DistributedQuotaService:
     SYNC_INTERVAL_SECONDS = 60  # Sync to DB every minute
     REDIS_TTL_SECONDS = 86400 * 7  # 7 days TTL for weekly quota data
     
-    # Lua script for atomic check-and-consume operation
+    # Lua script for atomic check-and-consume operation with auto-initialization
     # This prevents TOCTOU race conditions by checking and incrementing in one atomic operation
+    # When the key doesn't exist, it starts from 0 automatically (lazy initialization)
+    # A background sync task ensures Redis state is eventually consistent with the database
     CHECK_AND_CONSUME_SCRIPT = """
         local used_key = KEYS[1]
         local meta_key = KEYS[2]
@@ -94,7 +96,7 @@ class DistributedQuotaService:
         local week_number = ARGV[5]
         local now = ARGV[6]
         
-        -- Get current used value
+        -- Get current used value (nil returns 0 after tonumber)
         local current = redis.call('GET', used_key)
         local current_used = tonumber(current) or 0
         
@@ -105,15 +107,15 @@ class DistributedQuotaService:
             return {0, remaining, current_used}
         end
         
-        -- Atomically increment
+        -- Atomically increment (INCRBY creates the key if it doesn't exist)
         local new_used = redis.call('INCRBY', used_key, tokens_needed)
         
-        -- Set TTL if this is a new key
+        -- Set TTL if this is a newly created key (current was nil)
         if current == nil then
             redis.call('EXPIRE', used_key, ttl)
         end
         
-        -- Update metadata
+        -- Update metadata (create if doesn't exist)
         local meta = redis.call('GET', meta_key)
         local meta_table = {}
         if meta then
@@ -125,7 +127,7 @@ class DistributedQuotaService:
         meta_table['week_number'] = week_number
         redis.call('SETEX', meta_key, ttl, cjson.encode(meta_table))
         
-        -- Return success
+        -- Return success with new remaining count
         local new_remaining = current_week_quota - new_used
         return {1, new_remaining, new_used}
     """
@@ -390,6 +392,9 @@ class DistributedQuotaService:
         Uses Lua script for atomic check-and-consume to prevent TOCTOU race conditions.
         The entire operation (check + increment) happens atomically on the Redis server.
         
+        The Lua script handles lazy initialization automatically - if the key doesn't exist,
+        it starts from 0. A background sync task ensures eventual consistency with the database.
+        
         Args:
             student_id: The student ID
             current_week_quota: Maximum tokens allowed for the week
@@ -406,24 +411,9 @@ class DistributedQuotaService:
         used_key = self._make_used_key(student_id, week_number)
         meta_key = self._make_meta_key(student_id, week_number)
         
-        # First, ensure Redis has this student's quota initialized
-        exists = await redis.exists(used_key)
-        
-        if not exists:
-            # Initialize from database (outside the atomic operation)
-            db_state = await self._get_initial_quota_from_db(student_id, week_number)
-            if db_state is None:
-                return False, 0, 0
-            
-            await self._init_redis_quota(
-                student_id,
-                current_week_quota,
-                db_state.used_quota,
-                week_number,
-            )
-        
         # Execute Lua script for atomic check-and-consume
-        # This prevents TOCTOU race conditions by checking and incrementing atomically
+        # The script automatically handles missing keys by starting from 0
+        # This eliminates the race condition between exists check and initialization
         try:
             result = await redis.eval(
                 self.CHECK_AND_CONSUME_SCRIPT,
@@ -454,7 +444,7 @@ class DistributedQuotaService:
             async with self._sync_lock:
                 self._pending_syncs[student_id] = new_used
         
-        return success, remaining, new_used
+        return success, remaining, new_usednew_used
     
     async def _check_and_consume_fallback(
         self,

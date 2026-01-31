@@ -6,12 +6,7 @@ memory exhaustion attacks and ensure fair resource usage.
 Enforces size limits for both Content-Length and chunked transfer encoding.
 """
 
-from fastapi import Request, HTTPException
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import Response
-from typing import AsyncIterator, Callable
 from starlette.types import Receive, Scope, Send
-import io
 
 
 class SizeLimitedStream:
@@ -20,6 +15,11 @@ class SizeLimitedStream:
     This prevents chunked transfer encoding bypass by counting bytes
     as they are read from the stream.
     """
+    
+    # Custom exception for size limit violations
+    class SizeExceededError(Exception):
+        """Raised when request body exceeds size limit."""
+        pass
     
     def __init__(self, receive: Receive, max_size: int):
         """Initialize the size-limited stream.
@@ -35,7 +35,14 @@ class SizeLimitedStream:
         self._body_complete = False
     
     async def receive(self) -> dict:
-        """Receive and enforce size limit."""
+        """Receive and enforce size limit.
+        
+        Returns:
+            ASGI message dictionary
+            
+        Raises:
+            SizeExceededError: If body size exceeds max_size
+        """
         if self._body_complete:
             # Body already complete, return empty message
             return {"type": "http.request", "body": b"", "more_body": False}
@@ -51,12 +58,11 @@ class SizeLimitedStream:
             
             # Check size limit
             if self._bytes_read > self._max_size:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Request body too large. Maximum allowed: {self._max_size} bytes"
+                raise self.SizeExceededError(
+                    f"Request body too large. Maximum allowed: {self._max_size} bytes"
                 )
             
-            # Store body and update completion status
+            # Update completion status
             if not more_body:
                 self._body_complete = True
             
@@ -65,13 +71,15 @@ class SizeLimitedStream:
         return message
 
 
-class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    """Middleware to limit request body size.
+class RequestSizeLimitMiddleware:
+    """ASGI middleware to limit request body size.
     
     Prevents large request bodies from consuming excessive memory.
     Returns HTTP 413 (Payload Too Large) if the limit is exceeded.
     
     Works for both Content-Length header and chunked transfer encoding.
+    This implementation uses raw ASGI middleware to properly intercept
+    the receive callable before Starlette's Request is constructed.
     
     Usage:
         app.add_middleware(RequestSizeLimitMiddleware, max_body_size=10*1024*1024)
@@ -84,49 +92,68 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
             app: The ASGI application
             max_body_size: Maximum allowed body size in bytes (default: 10MB)
         """
-        super().__init__(app)
+        self.app = app
         self.max_body_size = max_body_size
     
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: RequestResponseEndpoint
-    ) -> Response:
-        """Process request with size limit check."""
-        # Check Content-Length header if present (fast path)
-        content_length = request.headers.get("content-length")
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Process the ASGI request with size limit enforcement."""
+        if scope["type"] != "http":
+            # Only intercept HTTP requests
+            await self.app(scope, receive, send)
+            return
+        
+        # Check Content-Length header first (fast path for most requests)
+        headers = dict(scope.get("headers", []))
+        content_length = None
+        for name, value in scope.get("headers", []):
+            if name.lower() == b"content-length":
+                content_length = value.decode()
+                break
+        
         if content_length:
             try:
                 size = int(content_length)
                 if size > self.max_body_size:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Request body too large. Maximum allowed: {self.max_body_size} bytes"
-                    )
+                    # Reject immediately without reading body
+                    await self._send_413_response(send)
+                    return
             except ValueError:
-                # Invalid Content-Length header, continue to stream check
+                # Invalid Content-Length, continue to stream check
                 pass
         
-        # For chunked encoding or missing Content-Length, 
-        # we need to wrap the receive callable to count bytes during streaming
-        # However, in Starlette/FastAPI middleware, the request body stream
-        # has already been accessed by some components, so we use a hybrid approach:
-        # 
-        # 1. If Content-Length was present and valid, we already checked it
-        # 2. For chunked encoding without Content-Length, we enforce at read time
-        #    by checking if the route handler has already read the body
+        # Wrap the receive callable to enforce size limit during streaming
+        # This properly handles chunked transfer encoding
+        size_limited_receive = SizeLimitedStream(receive, self.max_body_size).receive
         
-        # If the request body hasn't been streamed yet, we could wrap it here,
-        # but Starlette's Request class has already cached the body in many cases
-        # The most reliable approach is to check body size if it was already read
+        try:
+            await self.app(scope, size_limited_receive, send)
+        except SizeLimitedStream.SizeExceededError as exc:
+            # Catch size limit violations and send 413 response
+            await self._send_413_response(send, detail=str(exc))
+        except Exception:
+            # For other unexpected exceptions, still send 413 as safety measure
+            await self._send_413_response(send)
+            raise
+    
+    async def _send_413_response(self, send: Send, detail: str = None) -> None:
+        """Send a 413 Payload Too Large response.
         
-        if hasattr(request, "_body"):
-            # Body was already read by Starlette
-            body_length = len(request._body) if request._body else 0
-            if body_length > self.max_body_size:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"Request body too large. Maximum allowed: {self.max_body_size} bytes"
-                )
+        Args:
+            send: The ASGI send callable
+            detail: Optional detail message
+        """
+        if detail is None:
+            detail = f"Request body too large. Maximum allowed: {self.max_body_size} bytes"
         
-        return await call_next(request)
+        await send({
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                [b"content-type", b"application/json"],
+                [b"content-length", str(len(detail)).encode()],
+            ],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": detail.encode(),
+        })
