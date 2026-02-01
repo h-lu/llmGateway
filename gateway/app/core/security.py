@@ -57,3 +57,77 @@ def verify_api_key(raw_key: str, salt: str, hashed_key: str) -> bool:
     """
     _, computed_hash = hash_api_key_with_salt(raw_key, salt)
     return secrets.compare_digest(computed_hash, hashed_key)
+
+
+# ============================================
+# API Key Encryption (Balance Architecture)
+# ============================================
+
+import base64
+from typing import Optional
+
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+from gateway.app.core.config import settings
+
+
+def _get_encryption_key() -> bytes:
+    """Get or derive encryption key from settings."""
+    key = settings.api_key_encryption_key
+    
+    if not key:
+        # Development fallback - generate a deterministic key
+        # WARNING: In production, always set API_KEY_ENCRYPTION_KEY
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=b"teachproxy_fixed_salt_dev_only",
+            iterations=100000,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(b"dev_key"))
+    
+    return key.encode() if isinstance(key, str) else key
+
+
+def encrypt_api_key(api_key: str, cipher: Optional[Fernet] = None) -> str:
+    """Encrypt an API key for storage.
+    
+    Args:
+        api_key: The plain text API key
+        cipher: Optional Fernet instance (for testing)
+        
+    Returns:
+        Base64 encoded encrypted string
+    """
+    if cipher is None:
+        cipher = Fernet(_get_encryption_key())
+    
+    encrypted = cipher.encrypt(api_key.encode())
+    return base64.urlsafe_b64encode(encrypted).decode()
+
+
+def decrypt_api_key(encrypted_key: str, cipher: Optional[Fernet] = None) -> str:
+    """Decrypt an encrypted API key.
+    
+    Args:
+        encrypted_key: The encrypted API key string
+        cipher: Optional Fernet instance (for testing)
+        
+    Returns:
+        Plain text API key
+    """
+    if cipher is None:
+        cipher = Fernet(_get_encryption_key())
+    
+    encrypted_bytes = base64.urlsafe_b64decode(encrypted_key.encode())
+    return cipher.decrypt(encrypted_bytes).decode()
+
+
+def generate_encryption_key() -> str:
+    """Generate a new encryption key for .env file.
+    
+    Run: python -c "from gateway.app.core.security import generate_encryption_key; print(generate_encryption_key())"
+    """
+    return Fernet.generate_key().decode()
