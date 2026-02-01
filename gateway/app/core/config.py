@@ -2,7 +2,7 @@ import os
 from datetime import date
 from typing import Optional
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,15 +31,33 @@ class Settings(BaseSettings):
     db_pool_recycle: int = 300                  # Recycle every 5 minutes (reduced from 30min)
     db_pool_pre_ping: bool = True               # Detect stale connections before use
 
+    # SQLite pool settings (file-based SQLite during tests or stress)
+    db_sqlite_pool_size: int = 10
+    db_sqlite_max_overflow: int = 5
+
     # asyncpg specific optimizations
     db_command_timeout: float = 30.0            # Per-command timeout in seconds
     db_max_queries: int = 50000                 # Recycle connection after 50K queries
     db_max_inactive_connection_lifetime: float = 300.0  # Recycle idle connections after 5 minutes
     db_max_cached_statement_lifetime: int = 0   # No limit on prepared statement cache
 
+    # Explicit DATABASE_URL (takes priority over db_* settings)
+    database_url_override: str = Field(default="", validation_alias="DATABASE_URL")
+
     @property
     def database_url(self) -> str:
-        """Build PostgreSQL connection URL."""
+        """Build database connection URL.
+        
+        Priority:
+        1. database_url_override (from DATABASE_URL env var or .env file)
+        2. Built from db_* settings
+        """
+        # Check for explicit DATABASE_URL (loaded via pydantic-settings from .env)
+        if self.database_url_override:
+            if "sqlite" in self.database_url_override.lower():
+                raise ValueError("DATABASE_URL must use PostgreSQL")
+            return self.database_url_override
+            
         # Check if running in pytest
         if os.getenv("PYTEST_CURRENT_TEST"):
             return (
@@ -82,6 +100,12 @@ class Settings(BaseSettings):
     rate_limit_burst_size: int = 10
     rate_limit_window_seconds: int = 60
     rate_limit_fail_closed: bool = False  # If True, deny requests when Redis is unavailable
+
+    # Request router settings (overload protection)
+    request_router_enabled: bool = True
+    request_router_streaming_limit: int = 50
+    request_router_normal_limit: int = 200
+    request_router_timeout: float = 5.0
     
     # Logging settings
     log_level: str = "INFO"
@@ -105,6 +129,36 @@ class Settings(BaseSettings):
     # CORS settings
     cors_origins: list[str] = ["*"]  # Allowed CORS origins
 
+    # LLM Provider settings (Balance Architecture)
+    # Teacher Key Pool - DeepSeek Direct (Primary)
+    teacher_deepseek_api_key: str = ""
+    teacher_deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_direct_timeout: float = 15.0  # 15s timeout for fast failover
+    
+    # Teacher Key Pool - OpenRouter (Fallback)
+    teacher_openrouter_api_key: str = ""
+    teacher_openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_timeout: float = 30.0
+    openrouter_fallback_models: list[str] = [
+        "deepseek/deepseek-chat",
+        "openai/gpt-4o-mini",
+        "anthropic/claude-3-haiku",
+    ]
+    
+    # LLM Cache settings
+    llm_cache_enabled: bool = True
+    llm_cache_ttl_concept: int = 3600      # 1 hour for concept questions
+    llm_cache_ttl_general: int = 600       # 10 minutes for general
+    llm_cache_ttl_short: int = 300         # 5 minutes for short answers
+    llm_cache_prefix: str = "teachproxy:v1"
+    llm_cache_max_size: int = 10000        # 10KB max cacheable size
+    
+    # API Key encryption
+    api_key_encryption_key: str = ""       # 32-byte base64 encoded key
+    
+    # Cost tracking
+    cost_tracking_enabled: bool = True
+
     @field_validator('rate_limit_requests_per_minute', 'rate_limit_burst_size')
     @classmethod
     def validate_rate_limit_positive(cls, v: int) -> int:
@@ -113,12 +167,28 @@ class Settings(BaseSettings):
             raise ValueError("Rate limit values must be at least 1")
         return v
 
-    @field_validator('db_pool_size', 'db_max_overflow')
+    @field_validator('request_router_streaming_limit', 'request_router_normal_limit')
+    @classmethod
+    def validate_request_router_limits(cls, v: int) -> int:
+        """Validate request router limits are positive."""
+        if v < 1:
+            raise ValueError("request router limits must be at least 1")
+        return v
+
+    @field_validator('request_router_timeout')
+    @classmethod
+    def validate_request_router_timeout(cls, v: float) -> float:
+        """Validate request router timeout is positive."""
+        if v <= 0:
+            raise ValueError("request_router_timeout must be positive")
+        return v
+
+    @field_validator('db_pool_size', 'db_max_overflow', 'db_sqlite_pool_size', 'db_sqlite_max_overflow')
     @classmethod
     def validate_pool_size_positive(cls, v: int) -> int:
         """Validate pool_size is positive."""
         if v < 1:
-            raise ValueError("db_pool_size must be at least 1")
+            raise ValueError("pool size values must be at least 1")
         return v
 
     @field_validator('httpx_timeout', 'httpx_connect_timeout', 'httpx_read_timeout')
