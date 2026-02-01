@@ -7,6 +7,7 @@ is unavailable.
 
 import asyncio
 import json
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
@@ -24,7 +25,11 @@ logger = get_logger(__name__)
 REGEX_TIMEOUT_SECONDS = 0.1  # Reduced from 1.0 to prevent blocking
 
 # Thread pool executor for running regex in separate threads with timeout
-_regex_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="regex_worker")
+# Use more workers to handle high concurrency (was 4, now scaled with CPU count)
+_regex_executor = ThreadPoolExecutor(
+    max_workers=min(32, (os.cpu_count() or 4) * 4),
+    thread_name_prefix="regex_worker"
+)
 
 
 def _regex_search_sync(pattern: re.Pattern, text: str) -> Optional[re.Match]:
