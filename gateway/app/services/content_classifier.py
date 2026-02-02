@@ -70,7 +70,7 @@ class ContentClassifier:
     ]
     
     @classmethod
-    def classify(cls, prompt: str) -> CachePolicy:
+    def classify(cls, prompt: str | None) -> CachePolicy:
         """判断内容是否可以全局缓存。
         
         Rules:
@@ -78,7 +78,17 @@ class ContentClassifier:
         2. 包含个人信息 → 不缓存
         3. 项目/作业具体问题 → 不缓存
         4. 其他 → 可以缓存
+        
+        Args:
+            prompt: 用户输入的提示文本，可为空
+            
+        Returns:
+            CachePolicy: 缓存策略决定
         """
+        # 防御性检查：空值或空字符串不缓存
+        if not prompt:
+            return CachePolicy.NO_CACHE
+        
         # 检查代码
         for pattern in cls.CODE_PATTERNS:
             if re.search(pattern, prompt, re.IGNORECASE):
@@ -97,8 +107,18 @@ class ContentClassifier:
         return CachePolicy.CACHE
     
     @classmethod
-    def is_concept_question(cls, prompt: str) -> bool:
-        """判断是否是概念性问题（可缓存更久）"""
+    def is_concept_question(cls, prompt: str | None) -> bool:
+        """判断是否是概念性问题（可缓存更久）
+        
+        Args:
+            prompt: 用户输入的提示文本，可为空
+            
+        Returns:
+            bool: 是否是概念性问题
+        """
+        if not prompt:
+            return False
+        
         for pattern in cls.CONCEPT_PATTERNS:
             if re.search(pattern, prompt, re.IGNORECASE):
                 return True

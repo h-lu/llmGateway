@@ -57,3 +57,13 @@ class TestContentClassifier:
         """Test concept question detection."""
         assert ContentClassifier.is_concept_question("什么是面向对象？") is True
         assert ContentClassifier.is_concept_question("帮我调试这段代码") is False
+    
+    def test_empty_prompt_no_cache(self):
+        """Empty or None prompts should not be cached."""
+        assert ContentClassifier.classify("") == CachePolicy.NO_CACHE
+        assert ContentClassifier.classify(None) == CachePolicy.NO_CACHE
+    
+    def test_empty_prompt_not_concept(self):
+        """Empty or None prompts should not be concept questions."""
+        assert ContentClassifier.is_concept_question("") is False
+        assert ContentClassifier.is_concept_question(None) is False

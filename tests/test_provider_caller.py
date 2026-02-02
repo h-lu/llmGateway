@@ -7,8 +7,6 @@ import pytest
 from gateway.app.services.provider_caller import ProviderCaller
 from gateway.app.services.smart_router import KeyType, RoutingDecision
 
-pytestmark = pytest.mark.asyncio
-
 
 class TestProviderCaller:
     """Test provider calling functionality."""
@@ -55,6 +53,7 @@ class TestProviderCaller:
         cost = caller._estimate_cost(500_000, (0.55, 2.19))
         assert cost == pytest.approx(0.685, 0.01)
     
+    @pytest.mark.asyncio
     async def test_call_non_stream(self, caller, teacher_deepseek_decision, mock_openai_response):
         """Test non-streaming call."""
         with patch('gateway.app.services.provider_caller.AsyncOpenAI') as mock_client_class:
@@ -75,6 +74,7 @@ class TestProviderCaller:
         assert result["_meta"]["key_type"] == "teacher_deepseek"
         assert "cost_estimate" in result["_meta"]
     
+    @pytest.mark.asyncio
     async def test_call_with_openrouter_fallback(self, caller):
         """Test that OpenRouter gets fallback models."""
         decision = RoutingDecision(

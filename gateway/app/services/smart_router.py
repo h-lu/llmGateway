@@ -8,7 +8,6 @@ from typing import Optional
 
 from gateway.app.core.config import settings
 from gateway.app.db.models import Student
-from gateway.app.services.quota_cache import get_quota_cache_service
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +207,9 @@ class SmartRouter:
     
     async def _check_quota(self, student: Student) -> bool:
         """检查学生是否还有剩余配额"""
+        # 延迟导入避免循环依赖 (遵循 FastAPI 最佳实践)
+        from gateway.app.services.quota_cache import get_quota_cache_service
+        
         try:
             quota_service = get_quota_cache_service()
             week_number = get_current_week_number()
