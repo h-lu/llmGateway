@@ -11,6 +11,7 @@ class Student(Base):
     __table_args__ = (
         Index("idx_students_email", "email"),
         Index("idx_students_created", "created_at"),
+        Index("idx_students_provider_key", "provider_api_key_encrypted"),
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -20,6 +21,30 @@ class Student(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     current_week_quota: Mapped[int] = mapped_column(Integer, default=0)
     used_quota: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Balance Architecture: Student's own provider key
+    provider_api_key_encrypted: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="学生自己的 AI 提供商 API Key（加密存储）"
+    )
+    provider_type: Mapped[str] = mapped_column(
+        String(50),
+        default="deepseek",
+        comment="提供商类型: deepseek/openrouter"
+    )
+
+    @property
+    def has_own_provider_key(self) -> bool:
+        """检查学生是否设置了自己的提供商 Key"""
+        return self.provider_api_key_encrypted is not None
+
+    def get_provider_api_key(self, cipher=None) -> str | None:
+        """解密获取学生的 API Key"""
+        if not self.provider_api_key_encrypted:
+            return None
+        from gateway.app.core.security import decrypt_api_key
+        return decrypt_api_key(self.provider_api_key_encrypted, cipher)
 
 
 class Conversation(Base):
