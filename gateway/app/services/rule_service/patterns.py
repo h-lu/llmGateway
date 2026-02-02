@@ -5,15 +5,19 @@ from gateway.app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Hardcoded rule patterns
+# Hardcoded rule patterns - matching original rule_service.py behavior
 BLOCK_PATTERNS: List[Tuple[str, str]] = [
-    (r"密码|password|secret|key.*=", "不得询问敏感信息"),
-    (r"攻击|hack|exploit|injection", "不得涉及攻击行为"),
+    (r"写一个.+程序", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
+    (r"帮我实现.+", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
+    (r"生成.+代码", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
+    (r"给我.+的代码", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
+    (r"这道题的答案是什么", "检测到你在直接要求答案。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
+    (r"帮我做.+作业", "检测到你在直接要求代做作业。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
 ]
 
 GUIDE_PATTERNS: List[Tuple[str, str]] = [
-    (r"直接给答案|直接告诉我|给我代码", "请引导思考而非直接给答案"),
-    (r"帮我写|帮我做|帮我完成", "建议先尝试自己完成"),
+    (r"怎么.{2,5}$", "你的问题比较简短，能否补充更多背景？"),
+    (r"解释.+", "在我解释之后，请尝试用自己的话复述一遍"),
 ]
 
 
@@ -27,12 +31,15 @@ def parse_week_range(week_range_str: Optional[str]) -> Tuple[int, int]:
         (start_week, end_week) tuple
     """
     if not week_range_str:
-        return (1, 16)
+        return (1, 99)
+    
+    # Strip whitespace from the input
+    week_range_str = week_range_str.strip()
     
     try:
         if "-" in week_range_str:
             parts = week_range_str.split("-")
-            return (int(parts[0]), int(parts[1]))
+            return (int(parts[0].strip()), int(parts[1].strip()))
         elif "," in week_range_str:
             weeks = [int(w.strip()) for w in week_range_str.split(",")]
             return (min(weeks), max(weeks))
@@ -41,7 +48,7 @@ def parse_week_range(week_range_str: Optional[str]) -> Tuple[int, int]:
             return (week, week)
     except (ValueError, IndexError) as e:
         logger.warning(f"Invalid week range '{week_range_str}': {e}")
-        return (1, 16)
+        return (1, 99)
 
 
 def is_week_in_range(current_week: int, week_range_str: Optional[str]) -> bool:

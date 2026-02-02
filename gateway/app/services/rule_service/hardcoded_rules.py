@@ -34,10 +34,9 @@ async def evaluate_prompt_async(
             match = await _regex_search_with_timeout(pattern, text)
             if match:
                 return RuleResult(
-                    triggered=True,
-                    action="block",
+                    action="blocked",
                     message=message,
-                    matched_content=match.group(0)
+                    rule_id=f"hardcoded:{pattern_str}"
                 )
         except re.error as e:
             logger.error(f"Invalid block pattern '{pattern_str}': {e}")
@@ -50,16 +49,15 @@ async def evaluate_prompt_async(
             match = await _regex_search_with_timeout(pattern, text)
             if match:
                 return RuleResult(
-                    triggered=True,
-                    action="guide",
+                    action="guided",
                     message=message,
-                    matched_content=match.group(0)
+                    rule_id=f"hardcoded:{pattern_str}"
                 )
         except re.error as e:
             logger.error(f"Invalid guide pattern '{pattern_str}': {e}")
             continue
     
-    return RuleResult(triggered=False)
+    return RuleResult(action="passed")
 
 
 def evaluate_prompt(
