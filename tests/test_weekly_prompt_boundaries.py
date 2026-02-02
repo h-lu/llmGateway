@@ -367,11 +367,12 @@ class TestModelDefaults:
     """Test model default values."""
     
     def test_is_active_defaults_to_true(self):
-        """Test that is_active defaults to True."""
-        from sqlalchemy import true
-        
+        """Test that is_active column has default value of True."""
+        # Verify the column definition has a default value
         col = WeeklySystemPrompt.__table__.c.is_active
         assert col.default is not None
+        # The default is set at the Python/SQLAlchemy level (not server_default)
+        # This default is applied when the record is flushed to database
         assert col.default.arg is True
     
     def test_timestamps_auto_set(self):

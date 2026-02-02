@@ -15,10 +15,7 @@ from gateway.app.services.weekly_prompt_service import get_weekly_prompt_service
 
 
 # Skip all tests in this module - requires running database
-pytestmark = [
-    pytest.mark.asyncio,
-    pytest.mark.skip(reason="Integration tests require running database and server"),
-]
+pytestmark = pytest.mark.skip(reason="Integration tests require running database and server")
 
 @pytest_asyncio.fixture
 async def client():
@@ -35,11 +32,9 @@ def reset_cache():
     yield
 
 
-@pytest.mark.asyncio
 class TestCreatePrompt:
     """Test POST /admin/weekly-prompts endpoint."""
     
-    @pytest.mark.asyncio
     async def test_create_prompt_success(self, client):
         """Test creating a weekly prompt returns 201 with correct data."""
         response = await client.post("/admin/weekly-prompts", json={
@@ -60,7 +55,6 @@ class TestCreatePrompt:
         assert "created_at" in data
         assert "updated_at" in data
     
-    @pytest.mark.asyncio
     async def test_create_prompt_validation_error_week_range(self, client):
         """Test validation fails when week_end < week_start."""
         response = await client.post("/admin/weekly-prompts", json={
@@ -74,7 +68,6 @@ class TestCreatePrompt:
         data = response.json()
         assert "week_end" in str(data["detail"])
     
-    @pytest.mark.asyncio
     async def test_create_prompt_validation_error_week_out_of_range(self, client):
         """Test validation fails when week number > 52."""
         response = await client.post("/admin/weekly-prompts", json={
@@ -85,7 +78,6 @@ class TestCreatePrompt:
         
         assert response.status_code == 422
     
-    @pytest.mark.asyncio
     async def test_create_prompt_validation_error_short_content(self, client):
         """Test validation fails when system_prompt < 10 chars."""
         response = await client.post("/admin/weekly-prompts", json={
@@ -97,11 +89,9 @@ class TestCreatePrompt:
         assert response.status_code == 422
 
 
-@pytest.mark.asyncio
 class TestListPrompts:
     """Test GET /admin/weekly-prompts endpoint."""
     
-    @pytest.mark.asyncio
     async def test_list_prompts(self, client):
         """Test listing all prompts returns created items."""
         # Create a prompt first
@@ -119,7 +109,6 @@ class TestListPrompts:
         assert len(data) >= 1
         assert data[0]["week_start"] == 1
     
-    @pytest.mark.asyncio
     async def test_list_prompts_active_only(self, client):
         """Test filtering active prompts only."""
         # Create then delete (soft delete) a prompt
@@ -143,11 +132,9 @@ class TestListPrompts:
         assert active_count < all_count
 
 
-@pytest.mark.asyncio
 class TestUpdatePrompt:
     """Test PUT /admin/weekly-prompts/{id} endpoint."""
     
-    @pytest.mark.asyncio
     async def test_update_prompt_success(self, client):
         """Test updating a prompt returns updated data."""
         # Create first
@@ -170,7 +157,6 @@ class TestUpdatePrompt:
         assert data["description"] == "添加描述"
         assert data["week_start"] == 1  # Unchanged
     
-    @pytest.mark.asyncio
     async def test_update_prompt_not_found(self, client):
         """Test updating non-existent prompt returns 404."""
         response = await client.put("/admin/weekly-prompts/99999", json={
@@ -180,11 +166,9 @@ class TestUpdatePrompt:
         assert response.status_code == 404
 
 
-@pytest.mark.asyncio
 class TestDeletePrompt:
     """Test DELETE /admin/weekly-prompts/{id} endpoint."""
     
-    @pytest.mark.asyncio
     async def test_delete_prompt_success(self, client):
         """Test soft deleting a prompt returns 204."""
         # Create first
@@ -205,7 +189,6 @@ class TestDeletePrompt:
         prompts = list_resp.json()
         assert not any(p["id"] == prompt_id for p in prompts)
     
-    @pytest.mark.asyncio
     async def test_delete_prompt_not_found(self, client):
         """Test deleting non-existent prompt returns 404."""
         response = await client.delete("/admin/weekly-prompts/99999")
@@ -213,11 +196,9 @@ class TestDeletePrompt:
         assert response.status_code == 404
 
 
-@pytest.mark.asyncio
 class TestCacheInvalidation:
     """Test cache invalidation on write operations."""
     
-    @pytest.mark.asyncio
     async def test_create_prompt_invalidates_cache(self, client):
         """Test creating prompt invalidates service cache."""
         # Pre-populate cache
@@ -236,7 +217,6 @@ class TestCacheInvalidation:
         # Cache should be invalidated
         assert service._cache_valid is False
     
-    @pytest.mark.asyncio
     async def test_update_prompt_invalidates_cache(self, client):
         """Test updating prompt invalidates service cache."""
         # Create
@@ -262,11 +242,9 @@ class TestCacheInvalidation:
         assert service._cache_valid is False
 
 
-@pytest.mark.asyncio
 class TestDatabaseErrorHandling:
     """Test database error handling returns 500."""
     
-    @pytest.mark.asyncio
     async def test_database_error_on_create_returns_500(self, client):
         """Test database error during create returns 500."""
         with patch("gateway.app.api.weekly_prompts.create_weekly_prompt") as mock_create:

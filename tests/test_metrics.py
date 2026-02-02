@@ -95,7 +95,7 @@ class TestMetricsEndpoints:
     def test_prometheus_metrics_endpoint(self):
         """Test /metrics endpoint returns Prometheus format."""
         client = TestClient(app)
-        admin_token = os.getenv("ADMIN_TOKEN", "admin-secret-token-change-in-production")
+        admin_token = os.environ["ADMIN_TOKEN"]
         response = client.get("/metrics", headers={"Authorization": f"Bearer {admin_token}"})
         assert response.status_code == 200
         assert "text/plain" in response.headers["content-type"]
@@ -119,7 +119,7 @@ class TestMetricsEndpoints:
     def test_stats_endpoint_with_auth(self):
         """Test /stats endpoint with admin token."""
         client = TestClient(app)
-        admin_token = os.getenv("ADMIN_TOKEN", "admin-secret-token-change-in-production")
+        admin_token = os.environ["ADMIN_TOKEN"]
         
         response = client.get("/stats", headers={"Authorization": f"Bearer {admin_token}"})
         assert response.status_code == 200
