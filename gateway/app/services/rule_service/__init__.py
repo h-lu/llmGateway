@@ -11,6 +11,10 @@ from gateway.app.services.rule_service.regex_utils import (
     REGEX_TIMEOUT_SECONDS,
     cleanup_regex_executor,
 )
+from gateway.app.services.rule_service.hardcoded_rules import (
+    evaluate_prompt,
+    evaluate_prompt_async,
+)
 
 __all__ = [
     "RuleResult",
@@ -21,4 +25,6 @@ __all__ = [
     "_regex_search_with_timeout",
     "REGEX_TIMEOUT_SECONDS",
     "cleanup_regex_executor",
+    "evaluate_prompt",
+    "evaluate_prompt_async",
 ]
