@@ -62,3 +62,52 @@ class RuleViolationError(GatewayException):
         self.rule_id = rule_id
         self.message = message
         super().__init__(message)
+
+
+class QuotaExceededWithGuidanceError(GatewayException):
+    """配额不足异常，包含配置指引。
+    
+    Maps to HTTP 429 Too Many Requests with guidance.
+    """
+    status_code = 429
+    
+    def __init__(
+        self,
+        student_id: str,
+        remaining: int,
+        reset_week: int,
+        message: str,
+    ):
+        self.student_id = student_id
+        self.remaining = remaining
+        self.reset_week = reset_week
+        self.guidance_message = message
+        super().__init__(message)
+    
+    def to_response(self) -> dict:
+        """转换为 API 响应格式"""
+        return {
+            "error": "quota_exceeded",
+            "error_code": "QUOTA_EXCEEDED_CONFIGURE_KEY",
+            "message": self.guidance_message,
+            "remaining_tokens": self.remaining,
+            "reset_week": self.reset_week,
+            "actions": [
+                {
+                    "type": "configure_key",
+                    "title": "配置自己的 API Key",
+                    "description": "使用自己的 DeepSeek Key 继续学习",
+                    "url": "/settings/api-key",
+                },
+                {
+                    "type": "wait",
+                    "title": "等待下周",
+                    "description": f"配额将在第 {self.reset_week} 周重置",
+                }
+            ],
+            "recommended_provider": {
+                "name": "DeepSeek",
+                "website": "https://platform.deepseek.com",
+                "pricing": "$0.55/$2.19 per 1M tokens",
+            }
+        }
