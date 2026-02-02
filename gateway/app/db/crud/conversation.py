@@ -1,7 +1,7 @@
 """Conversation CRUD operations."""
+from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,7 @@ async def save_conversation(
     response: str,
     tokens_used: int,
     action: str,
-    rule_triggered: Optional[str],
+    rule_triggered: str | None,
     week_number: int,
     auto_commit: bool = True
 ) -> Conversation:
@@ -56,7 +56,7 @@ async def save_conversation(
 
 async def save_conversation_bulk(
     session: AsyncSession,
-    conversations: List[Conversation],
+    conversations: list[Conversation],
     auto_commit: bool = True
 ) -> int:
     """Save multiple conversation records to the database in bulk.
@@ -87,7 +87,7 @@ async def get_conversations_by_student(
     session: AsyncSession,
     student_id: str,
     limit: int = 100
-) -> List[Conversation]:
+) -> list[Conversation]:
     """Get conversations for a specific student.
     
     Args:
@@ -110,7 +110,7 @@ async def get_conversations_by_student(
 async def get_recent_conversations(
     session: AsyncSession,
     limit: int = 100
-) -> List[Conversation]:
+) -> list[Conversation]:
     """Get recent conversations across all students.
     
     Args:

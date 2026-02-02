@@ -1,7 +1,7 @@
 """Quota CRUD operations."""
+from __future__ import annotations
 
 from datetime import datetime
-from typing import List
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,7 +113,7 @@ async def create_quota_log(
 async def get_quota_logs_by_student(
     session: AsyncSession,
     student_id: str
-) -> List[QuotaLog]:
+) -> list[QuotaLog]:
     """Get quota logs for a specific student.
     
     Args:

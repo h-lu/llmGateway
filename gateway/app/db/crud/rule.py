@@ -1,5 +1,5 @@
 """Rule CRUD operations."""
-from typing import List, Optional
+from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +10,7 @@ from gateway.app.db.models import Rule
 async def get_all_rules(
     session: AsyncSession,
     enabled_only: bool = False
-) -> List[Rule]:
+) -> list[Rule]:
     """Get all rules from the database.
     
     Args:
@@ -30,7 +30,7 @@ async def get_all_rules(
 async def get_rule_by_id(
     session: AsyncSession,
     rule_id: int
-) -> Optional[Rule]:
+) -> Rule | None:
     """Get a rule by ID.
     
     Args:
@@ -153,7 +153,7 @@ async def toggle_rule_enabled(
     session: AsyncSession,
     rule_id: int,
     auto_commit: bool = True
-) -> Optional[bool]:
+) -> bool | None:
     """Toggle the enabled status of a rule.
     
     Args:

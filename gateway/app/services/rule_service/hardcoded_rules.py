@@ -1,7 +1,9 @@
 """Hardcoded rule evaluation logic."""
+from __future__ import annotations
+
 import re
 import asyncio
-from typing import Optional
+
 from gateway.app.core.logging import get_logger
 from gateway.app.services.rule_service.models import RuleResult
 from gateway.app.services.rule_service.patterns import BLOCK_PATTERNS, GUIDE_PATTERNS
@@ -13,7 +15,7 @@ logger = get_logger(__name__)
 async def evaluate_prompt_async(
     prompt: str,
     current_week: int,
-    is_conceptual: bool = False
+    is_conceptual: bool = False,
 ) -> RuleResult:
     """Evaluate prompt content asynchronously.
     
@@ -63,7 +65,7 @@ async def evaluate_prompt_async(
 def evaluate_prompt(
     prompt: str,
     current_week: int,
-    is_conceptual: bool = False
+    is_conceptual: bool = False,
 ) -> RuleResult:
     """Evaluate prompt content synchronously (for non-async contexts).
     

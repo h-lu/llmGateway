@@ -1,6 +1,7 @@
 """RuleService main class."""
+from __future__ import annotations
+
 import re
-from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from gateway.app.core.cache import get_cache
@@ -23,14 +24,14 @@ class RuleService:
     CACHE_KEY = "rules:all"
     CACHE_TTL = 300
 
-    def __init__(self, db: Optional[AsyncSession] = None):
+    def __init__(self, db: AsyncSession | None = None):
         self.db = db
-        self._rules_cache: List[Rule] = []
+        self._rules_cache: list[Rule] = []
         self._cache_valid = False
         self._use_hardcoded = False
         self._compiled_patterns: dict = {}
 
-    async def get_rules_async(self) -> List[Rule]:
+    async def get_rules_async(self) -> list[Rule]:
         """Get current rules (from cache or database) - async version.
 
         Returns:
@@ -74,7 +75,7 @@ class RuleService:
             logger.error(f"Failed to load rules from DB: {e}")
             return []
 
-    def get_rules(self) -> List[Rule]:
+    def get_rules(self) -> list[Rule]:
         """Get current rules (from cache) - sync version.
 
         Note: This method returns cached rules if available.
@@ -92,7 +93,7 @@ class RuleService:
         # Return empty list in sync context - rules should be loaded via async methods
         return []
 
-    def _compile_patterns(self, rules: List[Rule]) -> None:
+    def _compile_patterns(self, rules: list[Rule]) -> None:
         """Compile regex patterns for rules."""
         self._compiled_patterns = {}
         for rule in rules:
@@ -296,7 +297,7 @@ class RuleService:
 
 
 # Global instance for convenience
-_default_service: Optional[RuleService] = None
+_default_service: RuleService | None = None
 
 
 def get_rule_service() -> RuleService:

@@ -1,12 +1,14 @@
 """Rule patterns and utilities."""
+from __future__ import annotations
+
 import re
-from typing import Dict, List, Tuple, Optional, Any
+from typing import List, Tuple, Optional
 from gateway.app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 # Hardcoded rule patterns - matching original rule_service.py behavior
-BLOCK_PATTERNS: List[Tuple[str, str]] = [
+BLOCK_PATTERNS: list[tuple[str, str]] = [
     (r"写一个.+程序", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
     (r"帮我实现.+", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
     (r"生成.+代码", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
@@ -15,13 +17,13 @@ BLOCK_PATTERNS: List[Tuple[str, str]] = [
     (r"帮我做.+作业", "检测到你在直接要求代做作业。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
 ]
 
-GUIDE_PATTERNS: List[Tuple[str, str]] = [
+GUIDE_PATTERNS: list[tuple[str, str]] = [
     (r"怎么.{2,5}$", "你的问题比较简短，能否补充更多背景？"),
     (r"解释.+", "在我解释之后，请尝试用自己的话复述一遍"),
 ]
 
 
-def parse_week_range(week_range_str: Optional[str]) -> Tuple[int, int]:
+def parse_week_range(week_range_str: str | None) -> tuple[int, int]:
     """Parse week range string.
     
     Args:
@@ -51,7 +53,7 @@ def parse_week_range(week_range_str: Optional[str]) -> Tuple[int, int]:
         return (1, 99)
 
 
-def is_week_in_range(current_week: int, week_range_str: Optional[str]) -> bool:
+def is_week_in_range(current_week: int, week_range_str: str | None) -> bool:
     """Check if current week is in range."""
     start, end = parse_week_range(week_range_str)
     return start <= current_week <= end

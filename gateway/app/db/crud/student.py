@@ -1,6 +1,7 @@
 """Student CRUD operations."""
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +12,7 @@ from gateway.app.db.models import Conversation, QuotaLog, Student
 async def lookup_student_by_hash(
     session: AsyncSession,
     api_key_hash: str
-) -> Optional[Student]:
+) -> Student | None:
     """Find a student by their API key hash.
     
     Args:
@@ -30,7 +31,7 @@ async def lookup_student_by_hash(
 async def get_student_by_id(
     session: AsyncSession,
     student_id: str
-) -> Optional[Student]:
+) -> Student | None:
     """Get a student by ID.
     
     Args:
@@ -46,7 +47,7 @@ async def get_student_by_id(
     return result.scalar_one_or_none()
 
 
-async def list_students(session: AsyncSession) -> List[Student]:
+async def list_students(session: AsyncSession) -> list[Student]:
     """Get all students.
     
     Args:
@@ -172,8 +173,8 @@ async def check_and_consume_quota(
 
 async def update_student_quota_bulk(
     session: AsyncSession,
-    adjustments: Dict[str, int],
-    auto_commit: bool = True
+    adjustments: dict[str, int],
+    auto_commit: bool = True,
 ) -> int:
     """Update quotas for multiple students in bulk.
     
@@ -214,7 +215,7 @@ async def get_conversations_by_student(
     session: AsyncSession,
     student_id: str,
     limit: int = 100
-) -> List[Conversation]:
+) -> list[Conversation]:
     """Get conversations for a specific student.
     
     Args:
@@ -237,7 +238,7 @@ async def get_conversations_by_student(
 async def get_quota_logs_by_student(
     session: AsyncSession,
     student_id: str
-) -> List[QuotaLog]:
+) -> list[QuotaLog]:
     """Get quota logs for a specific student.
     
     Args:
