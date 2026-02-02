@@ -716,11 +716,8 @@ class MultiUserStressTest:
         self._student_api_keys: List[str] = []
         self._stop_event = asyncio.Event()
     
-    async def setup(self) -> None:
-        """准备测试数据"""
-        print("[准备] 创建测试学生账号...")
-        
-        # 使用同步数据库操作
+    def _setup_sync(self) -> tuple:
+        """同步准备测试数据"""
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
         
@@ -735,6 +732,7 @@ class MultiUserStressTest:
             
             # 创建测试学生
             students = []
+            api_keys = []
             timestamp = int(time.time())
             
             for i in range(1, self.config.student_count + 1):
@@ -751,18 +749,27 @@ class MultiUserStressTest:
                     current_week_quota=random.randint(10000, 50000),
                     used_quota=0
                 )
-                students.append((student, api_key))
+                students.append(student)
+                api_keys.append(api_key)
                 session.add(student)
             
             session.commit()
-            
-            self._test_students = [s[0] for s in students]
-            self._student_api_keys = [s[1] for s in students]
-            
-            print(f"[准备] 创建了 {len(students)} 个测试学生")
+            return students, api_keys
             
         finally:
             session.close()
+    
+    async def setup(self) -> None:
+        """准备测试数据"""
+        print("[准备] 创建测试学生账号...")
+        
+        # 在单独的线程中运行同步数据库操作
+        students, api_keys = await asyncio.to_thread(self._setup_sync)
+        
+        self._test_students = students
+        self._student_api_keys = api_keys
+        
+        print(f"[准备] 创建了 {len(students)} 个测试学生")
     
     async def teardown(self) -> None:
         """清理测试数据"""

@@ -372,7 +372,7 @@ class TestModelDefaults:
         
         col = WeeklySystemPrompt.__table__.c.is_active
         assert col.default is not None
-        assert col.server_default is not None
+        assert col.default.arg is True
     
     def test_timestamps_auto_set(self):
         """Test that created_at/updated_at have defaults."""

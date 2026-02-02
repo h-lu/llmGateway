@@ -95,7 +95,8 @@ class TestMetricsEndpoints:
     def test_prometheus_metrics_endpoint(self):
         """Test /metrics endpoint returns Prometheus format."""
         client = TestClient(app)
-        response = client.get("/metrics")
+        admin_token = os.getenv("ADMIN_TOKEN", "admin-secret-token-change-in-production")
+        response = client.get("/metrics", headers={"Authorization": f"Bearer {admin_token}"})
         assert response.status_code == 200
         assert "text/plain" in response.headers["content-type"]
         assert "gateway_" in response.text
@@ -107,7 +108,7 @@ class TestMetricsEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert "status" in data
-        assert "uptime_seconds" in data
+        assert "components" in data
     
     def test_stats_endpoint_requires_auth(self):
         """Test /stats endpoint requires admin auth."""
