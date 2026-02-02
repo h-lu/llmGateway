@@ -32,6 +32,13 @@ from gateway.app.services.async_logger import (
     get_async_logger,
 )
 from gateway.app.services.request_router import get_request_router
+from gateway.app.services.llm_cache import get_llm_cache_service
+from gateway.app.services.provider_caller import get_provider_caller
+from gateway.app.services.smart_router import (
+    QuotaExceededWithGuidanceError,
+    SmartRouter,
+    KeyType,
+)
 
 # Maximum failover attempts for provider failures (from configuration)
 MAX_FAILOVER_ATTEMPTS = settings.max_failover_attempts
