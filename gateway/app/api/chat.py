@@ -820,16 +820,3 @@ async def chat_completions(
                 await request_router.release_streaming_slot()
             else:
                 await request_router.release_normal_slot()
-
-
-# Exception handler for QuotaExceededWithGuidanceError
-@router.exception_handler(QuotaExceededWithGuidanceError)
-async def quota_exceeded_handler(request: Request, exc: QuotaExceededWithGuidanceError):
-    """Handle quota exceeded with guidance."""
-    return JSONResponse(
-        status_code=429,
-        content=exc.to_response(),
-        headers={
-            "Retry-After": str(3600 * 24 * 7),  # 1 week
-        }
-    )
