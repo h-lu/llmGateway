@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import List, Tuple, Optional
 from gateway.app.core.logging import get_logger
 
 logger = get_logger(__name__)

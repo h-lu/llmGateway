@@ -1,11 +1,12 @@
 """Rule service models."""
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class RuleResult:
     """Result of evaluating a prompt against rules."""
     action: str  # blocked | guided | passed
-    message: Optional[str] = None
-    rule_id: Optional[str] = None
+    message: str | None = None
+    rule_id: str | None = None
