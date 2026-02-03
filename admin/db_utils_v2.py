@@ -95,9 +95,8 @@ def get_dashboard_stats() -> Dict[str, Any]:
         
         # 本周配额日志统计
         current_week = get_current_week_number()
-        week_quota_logs = session.query(func.sum(QuotaLog.tokens)).filter(
-            QuotaLog.week_number == current_week,
-            QuotaLog.log_type == "used"
+        week_quota_logs = session.query(func.sum(QuotaLog.tokens_used)).filter(
+            QuotaLog.week_number == current_week
         ).scalar() or 0
         
         return {
@@ -505,20 +504,16 @@ def get_student_quota_stats(student_id: str) -> Dict[str, Any]:
         current_week = get_current_week_number()
         
         # 本周使用
-        week_usage = session.query(func.sum(QuotaLog.tokens)).filter(
+        week_usage = session.query(func.sum(QuotaLog.tokens_used)).filter(
             and_(
                 QuotaLog.student_id == student_id,
-                QuotaLog.week_number == current_week,
-                QuotaLog.log_type == "used"
+                QuotaLog.week_number == current_week
             )
         ).scalar() or 0
         
         # 历史总计
-        total_usage = session.query(func.sum(QuotaLog.tokens)).filter(
-            and_(
-                QuotaLog.student_id == student_id,
-                QuotaLog.log_type == "used"
-            )
+        total_usage = session.query(func.sum(QuotaLog.tokens_used)).filter(
+            QuotaLog.student_id == student_id
         ).scalar() or 0
         
         return {
