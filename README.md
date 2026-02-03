@@ -1,216 +1,123 @@
-# TeachProxy Gateway
+# TeachProxy - AI 教学代理网关与管理面板
 
-A high-performance AI API gateway built with FastAPI, featuring rate limiting, quota management, multi-provider support, and rule-based content filtering.
+一个高性能的 AI API 网关，基于 FastAPI 构建，具备速率限制、配额管理、多提供商支持和基于规则的内容过滤功能。
 
-## Features
+## 功能特性
 
-- **Multi-Provider Support**: DeepSeek, OpenAI, and Mock providers with automatic failover
-- **Load Balancing**: Round-robin, weighted, and health-first strategies
-- **Rate Limiting**: Token bucket algorithm with Redis-backed distributed limiting
-- **Quota Management**: Weekly token quotas per student with Redis caching
-- **Content Filtering**: Regex-based rules engine for blocking and guiding content
-- **Health Checking**: Automatic provider health monitoring with recovery
-- **Observability**: Structured logging, metrics, and OpenTelemetry tracing
-- **High Performance**: Connection pooling, async operations, and warm startup
+- **多提供商支持**: DeepSeek、OpenAI 和 Mock 提供商，支持自动故障转移
+- **负载均衡**: 轮询、加权轮询和健康优先策略
+- **速率限制**: 基于令牌桶算法，支持 Redis 分布式限制
+- **配额管理**: 每周学生令牌配额，支持 Redis 缓存
+- **内容过滤**: 基于正则的规则引擎，用于拦截和引导内容
+- **健康检查**: 自动提供商健康监控与恢复
+- **可观测性**: 结构化日志、指标和 OpenTelemetry 链路追踪
+- **高性能**: 连接池、异步操作和预热启动
+- **管理面板**: 基于 Streamlit 的直观管理界面
 
-## Architecture
+## 快速开始
 
-```
-┌─────────────┐    ┌──────────────┐    ┌─────────────┐
-│   Client    │───▶│   Gateway    │───▶│  Providers  │
-└─────────────┘    └──────────────┘    └─────────────┘
-                         │
-                         ▼
-                   ┌──────────────┐
-                   │  PostgreSQL  │
-                   │     Redis    │
-                   └──────────────┘
-```
-
-### Components
-
-| Component | Description |
-|-----------|-------------|
-| `app/api/` | API endpoints (chat, metrics, weekly prompts) |
-| `app/core/` | Configuration, HTTP client, logging, security |
-| `app/db/` | Database models, sessions, CRUD operations |
-| `app/middleware/` | Auth, rate limiting, request ID, size limits |
-| `app/providers/` | Provider implementations and load balancing |
-| `app/services/` | Business logic (quota, rules, conversation) |
-
-## Requirements
-
-- Python 3.12+
-- PostgreSQL 14+
-- Redis 6+ (optional, for distributed rate limiting)
-
-## Installation
+### 安装
 
 ```bash
-# Clone the repository
+# 克隆仓库
 git clone <repository-url>
-cd gateway
+cd teachproxy
 
-# Install dependencies
-pip install -e .
-
-# Or using uv
-uv pip install -e .
+# 安装依赖
+uv pip install -e ".[dev]"
 ```
 
-## Configuration
+### 配置
 
-Create a `.env` file in the project root:
+创建 `.env` 文件：
 
 ```bash
-# Database
-db_host=localhost
-db_port=5432
-db_user=teachproxy
-db_password=teachproxy123
-db_name=teachproxy
+# 复制示例配置
+cp .env.example .env
 
-# Connection Pool (optimized for high concurrency)
-db_pool_size=50
-db_max_overflow=-1        # -1 = unlimited overflow
-db_pool_timeout=5
-db_pool_recycle=1800
-
-# DeepSeek API
-deepseek_api_key=your-api-key
-deepseek_base_url=https://api.deepseek.com/v1
-
-# OpenAI API (optional)
-openai_api_key=your-api-key
-openai_base_url=https://api.openai.com/v1
-
-# Rate Limiting
-rate_limit_requests_per_minute=60
-rate_limit_burst_size=10
-
-# Redis (optional)
-redis_enabled=false
-redis_url=redis://localhost:6379/0
-
-# Academic Calendar
-semester_start_date=2026-02-17
-semester_weeks=16
+# 编辑 .env 文件，配置数据库和 API 密钥
 ```
 
-## Running
+### 运行
+
+**启动网关服务：**
 
 ```bash
-# Development
+# 开发模式
 uvicorn gateway.app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Production
+# 生产模式
 uvicorn gateway.app.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-## API Endpoints
-
-### Chat Completions
+**启动管理面板：**
 
 ```bash
-POST /v1/chat/completions
-Authorization: Bearer <student-api-key>
-Content-Type: application/json
-
-{
-  "messages": [
-    {"role": "user", "content": "Hello!"}
-  ],
-  "model": "deepseek",
-  "stream": false
-}
-```
-
-### List Models
-
-```bash
-GET /v1/models
-Authorization: Bearer <student-api-key>
-```
-
-### Health Check
-
-```bash
-GET /health
-```
-
-### Metrics
-
-```bash
-GET /metrics
-```
-
-## Middleware Chain
-
-Requests flow through middleware in this order:
-
-1. **CORSMiddleware** - CORS handling
-2. **MetricsMiddleware** - Request timing and tracking
-3. **RequestIdMiddleware** - Unique request ID generation
-4. **RateLimitMiddleware** - Token bucket rate limiting
-5. **AuthMiddleware** - Student authentication
-6. **RequestSizeMiddleware** - Content size validation
-
-## Database Models
-
-| Model | Fields |
-|-------|--------|
-| **Student** | id, name, weekly_token_limit, api_key |
-| **Conversation** | id, student_id, messages, created_at |
-| **Rule** | id, name, pattern, rule_type (BLOCK/GUIDE) |
-| **WeeklySystemPrompt** | id, week_number, content, start_date, end_date |
-| **QuotaLog** | id, student_id, week_number, tokens_used |
-
-## Load Balancing Strategies
-
-| Strategy | Description |
-|----------|-------------|
-| `ROUND_ROBIN` | Distribute requests evenly across providers |
-| `WEIGHTED` | Distribute based on configured weights |
-| `HEALTH_FIRST` | Prioritize healthy providers |
-
-## Error Responses
-
-| Code | Error | Description |
-|------|-------|-------------|
-| 401 | `authentication_error` | Invalid or missing API key |
-| 403 | `quota_exceeded` | Weekly quota limit reached |
-| 403 | `rule_violation` | Content blocked by rules |
-| 429 | `rate_limit_exceeded` | Too many requests |
-| 500 | `internal_error` | Server error |
-
-## Development
-
-```bash
-# Run tests
-pytest
-
-# Run with coverage
-pytest --cov=gateway --cov-report=html
-
-# Linting
-ruff check gateway/
-ruff format gateway/
-```
-
-## Environment Variables
-
-See `app/core/config.py` for all available configuration options.
-
-## License
-
-MIT
-
-## Running the Project
-
-```bash
-# Development
-uvicorn gateway.app.main:app --reload --host 0.0.0.0 --port 8000
-
-# Admin Panel
 streamlit run admin/streamlit_app.py
 ```
+
+## 项目结构
+
+```
+.
+├── gateway/              # FastAPI 网关服务
+│   ├── app/
+│   │   ├── api/          # API 端点
+│   │   ├── core/         # 配置、日志、安全
+│   │   ├── db/           # 数据库模型和操作
+│   │   ├── middleware/   # 认证、限流中间件
+│   │   ├── providers/    # AI 提供商实现
+│   │   └── services/     # 业务逻辑
+│   └── ...
+├── admin/                # Streamlit 管理面板
+│   ├── streamlit_app.py  # 主应用入口
+│   └── pages/            # 各功能页面
+├── tests/                # 测试用例
+└── docs/                 # 文档
+```
+
+## API 文档
+
+启动服务后，可通过以下地址访问 API 文档：
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+### 主要端点
+
+| 端点 | 描述 |
+|------|------|
+| `POST /v1/chat/completions` | 聊天补全 |
+| `GET /v1/models` | 列出可用模型 |
+| `GET /health` | 健康检查 |
+| `GET /metrics` | 指标数据 |
+
+## 测试
+
+```bash
+# 运行所有测试
+pytest
+
+# 带覆盖率报告
+pytest --cov=gateway --cov-report=html
+
+# 运行特定测试文件
+pytest tests/test_docs.py -v
+```
+
+## 开发
+
+```bash
+# 代码格式化
+ruff format gateway/ admin/
+
+# 代码检查
+ruff check gateway/ admin/
+
+# 类型检查
+mypy gateway/ admin/
+```
+
+## 许可证
+
+MIT

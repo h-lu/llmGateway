@@ -368,7 +368,7 @@ class TestDistributedQuotaServiceRedis:
         assert state.source == "redis"
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
     async def test_get_quota_state_fallback_to_db(self, mock_get_student, mock_db_student):
         """Test fallback to database when Redis is empty."""
         mock_get_student.return_value = mock_db_student
@@ -387,7 +387,7 @@ class TestDistributedQuotaServiceRedis:
         assert call_args[0][1] == "test_student"  # First arg is session, second is student_id
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
     async def test_check_and_consume_with_redis_sufficient_quota(self, mock_get_student, mock_db_student, mock_redis):
         """Test consuming quota when sufficient.
 
@@ -409,7 +409,7 @@ class TestDistributedQuotaServiceRedis:
         assert remaining == 900
 
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
     async def test_check_and_consume_with_redis_insufficient_quota(self, mock_get_student, mock_db_student, mock_redis):
         """Test consuming quota when insufficient.
 
@@ -432,7 +432,7 @@ class TestDistributedQuotaServiceRedis:
         assert used == 950
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
     async def test_release_quota(self, mock_get_student, mock_redis, mock_db_student):
         """Test releasing previously consumed quota."""
         mock_get_student.return_value = mock_db_student
@@ -462,7 +462,7 @@ class TestDistributedQuotaServiceFallback:
         yield
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.check_and_consume_quota")
+    @patch("gateway.app.services.distributed_quota.service.check_and_consume_quota")
     async def test_fallback_to_database(self, mock_check_consume):
         """Test fallback to database when Redis unavailable."""
         mock_check_consume.return_value = (True, 800, 200)
@@ -500,8 +500,8 @@ class TestDistributedQuotaServiceSync:
         yield
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
-    @patch("gateway.app.services.distributed_quota.update_student_quota")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.update_student_quota")
     async def test_sync_to_database(self, mock_update_quota, mock_get_student):
         """Test syncing Redis state to database."""
         # Setup: DB has 100, Redis has 500
@@ -523,8 +523,8 @@ class TestDistributedQuotaServiceSync:
         assert call_args[0][2] == 400  # Third arg is adjustment
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
-    @patch("gateway.app.services.distributed_quota.update_student_quota")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.update_student_quota")
     async def test_sync_no_pending(self, mock_update_quota, mock_get_student):
         """Test sync when no pending updates."""
         synced = await self.service.sync_to_database()
@@ -533,8 +533,8 @@ class TestDistributedQuotaServiceSync:
         mock_update_quota.assert_not_called()
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
-    @patch("gateway.app.services.distributed_quota.update_student_quota")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.update_student_quota")
     async def test_sync_multiple_students(self, mock_update_quota, mock_get_student):
         """Test syncing multiple students."""
         # Setup mocks for multiple students
@@ -570,7 +570,7 @@ class TestMultiInstanceQuota:
         yield
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
     async def test_get_multi_instance_quota_from_redis(self, mock_get_student, mock_redis):
         """Test getting multi-instance quota when Redis has data."""
         mock_get_student.return_value = self.mock_student
@@ -586,7 +586,7 @@ class TestMultiInstanceQuota:
         assert state.used_quota == 400
     
     @pytest.mark.asyncio
-    @patch("gateway.app.services.distributed_quota.get_student_by_id")
+    @patch("gateway.app.services.distributed_quota.service.get_student_by_id")
     async def test_get_multi_instance_quota_init_redis(self, mock_get_student, mock_redis):
         """Test that DB state initializes Redis when Redis is empty."""
         mock_get_student.return_value = self.mock_student
@@ -751,7 +751,7 @@ class TestConfigIntegration:
     
     def test_service_uses_config_redis_url(self):
         """Test service uses Redis URL from config."""
-        with patch("gateway.app.services.distributed_quota.settings") as mock_settings:
+        with patch("gateway.app.services.distributed_quota.service.settings") as mock_settings:
             mock_settings.redis_url = "redis://config:6379/2"
             mock_settings.redis_enabled = False
             
@@ -773,7 +773,7 @@ class TestEdgeCases:
         service = DistributedQuotaService(enable_sync=False)
         service._redis = None
         
-        with patch("gateway.app.services.distributed_quota.get_student_by_id") as mock:
+        with patch("gateway.app.services.distributed_quota.service.get_student_by_id") as mock:
             mock.return_value = None
             
             state = await service.get_quota_state("nonexistent", week_number=5)

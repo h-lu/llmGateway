@@ -7,59 +7,20 @@ to database when Redis is unavailable. Supports periodic sync from Redis to data
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 from datetime import datetime
 
 from gateway.app.core.config import settings
 from gateway.app.core.utils import get_current_week_number
-from gateway.app.db.crud import check_and_consume_quota, update_student_quota, get_student_by_id
+
+# Import DB functions - these are re-exported from __init__.py for backward compatibility
+# Tests mock these at the package level: gateway.app.services.distributed_quota.xxx
+from . import check_and_consume_quota, get_student_by_id, update_student_quota
+
+from .models import DistributedQuotaState
+from .redis_lua import CHECK_AND_CONSUME_SCRIPT
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class DistributedQuotaState:
-    """Quota state for distributed quota management.
-    
-    Attributes:
-        student_id: The student ID
-        current_week_quota: Maximum tokens allowed for the week
-        used_quota: Tokens already used (from Redis or DB)
-        week_number: The academic week number
-        source: Where the data came from ('redis', 'db', or 'cache')
-    """
-    student_id: str
-    current_week_quota: int
-    used_quota: int
-    week_number: int = field(default=0)
-    source: str = field(default="db")
-    
-    @property
-    def remaining(self) -> int:
-        """Calculate remaining quota."""
-        return self.current_week_quota - self.used_quota
-    
-    def to_dict(self) -> dict:
-        """Convert to dictionary for serialization."""
-        return {
-            "student_id": self.student_id,
-            "current_week_quota": self.current_week_quota,
-            "used_quota": self.used_quota,
-            "week_number": self.week_number,
-            "source": self.source,
-        }
-    
-    @classmethod
-    def from_dict(cls, data: dict) -> "DistributedQuotaState":
-        """Create from dictionary."""
-        return cls(
-            student_id=data["student_id"],
-            current_week_quota=data["current_week_quota"],
-            used_quota=data["used_quota"],
-            week_number=data.get("week_number", 0),
-            source=data.get("source", "db"),
-        )
 
 
 class DistributedQuotaService:
@@ -82,92 +43,28 @@ class DistributedQuotaService:
     SYNC_INTERVAL_SECONDS = 60  # Sync to DB every minute
     REDIS_TTL_SECONDS = 86400 * 7  # 7 days TTL for weekly quota data
     
-    # Lua script for atomic check-and-consume operation with auto-initialization
-    # This prevents TOCTOU race conditions by checking and incrementing in one atomic operation
-    # When the key doesn't exist, it starts from 0 automatically (lazy initialization)
-    # A background sync task ensures Redis state is eventually consistent with the database
-    CHECK_AND_CONSUME_SCRIPT = """
-        local used_key = KEYS[1]
-        local meta_key = KEYS[2]
-        local current_week_quota = tonumber(ARGV[1])
-        local tokens_needed = tonumber(ARGV[2])
-        local ttl = tonumber(ARGV[3])
-        local student_id = ARGV[4]
-        local week_number = ARGV[5]
-        local now = ARGV[6]
-        
-        -- Get current used value (nil returns 0 after tonumber)
-        local current = redis.call('GET', used_key)
-        local current_used = tonumber(current) or 0
-        
-        -- Check if quota is available
-        local remaining = current_week_quota - current_used
-        if remaining < tokens_needed then
-            -- Not enough quota, return failure
-            return {0, remaining, current_used}
-        end
-        
-        -- Atomically increment (INCRBY creates the key if it doesn't exist)
-        local new_used = redis.call('INCRBY', used_key, tokens_needed)
-        
-        -- Set TTL if this is a newly created key (current was nil)
-        if current == nil then
-            redis.call('EXPIRE', used_key, ttl)
-        end
-        
-        -- Update metadata (create if doesn't exist)
-        local meta = redis.call('GET', meta_key)
-        local meta_table = {}
-        if meta then
-            meta_table = cjson.decode(meta)
-        end
-        meta_table['quota'] = current_week_quota
-        meta_table['last_used'] = now
-        meta_table['student_id'] = student_id
-        meta_table['week_number'] = week_number
-        redis.call('SETEX', meta_key, ttl, cjson.encode(meta_table))
-        
-        -- Return success with new remaining count
-        local new_remaining = current_week_quota - new_used
-        return {1, new_remaining, new_used}
-    """
-    
     def __init__(
         self,
         redis_client: Optional[Any] = None,
         redis_url: Optional[str] = None,
         enable_sync: bool = True,
     ) -> None:
-        """Initialize the distributed quota service.
-        
-        Args:
-            redis_client: Optional Redis client instance
-            redis_url: Redis connection URL (uses settings if not provided)
-            enable_sync: Whether to enable periodic DB sync
-        """
+        """Initialize the distributed quota service."""
         self._redis = redis_client
         self._redis_url = redis_url or settings.redis_url
         self._sync_task: Optional[asyncio.Task] = None
         self._enable_sync = enable_sync
         self._sync_interval = self.SYNC_INTERVAL_SECONDS
         self._shutdown_event = asyncio.Event()
-        
-        # Track pending syncs (student_id -> used_quota)
         self._pending_syncs: Dict[str, int] = {}
         self._sync_lock = asyncio.Lock()
     
     def _get_redis(self) -> Optional[Any]:
-        """Get or create Redis client.
-        
-        Returns:
-            Redis client if available, None otherwise
-        """
+        """Get or create Redis client."""
         if self._redis is not None:
             return self._redis
-        
         if not settings.redis_enabled:
             return None
-        
         try:
             import redis.asyncio as aioredis
             self._redis = aioredis.from_url(self._redis_url)
@@ -177,29 +74,13 @@ class DistributedQuotaService:
             return None
     
     def _make_used_key(self, student_id: str, week_number: Optional[int] = None) -> str:
-        """Create Redis key for used quota counter.
-        
-        Args:
-            student_id: The student ID
-            week_number: The week number. If None, uses current week.
-            
-        Returns:
-            Redis key string
-        """
+        """Create Redis key for used quota counter."""
         if week_number is None:
             week_number = get_current_week_number()
         return f"{self.REDIS_KEY_PREFIX_USED}:{student_id}:{week_number}"
     
     def _make_meta_key(self, student_id: str, week_number: Optional[int] = None) -> str:
-        """Create Redis key for quota metadata.
-        
-        Args:
-            student_id: The student ID
-            week_number: The week number. If None, uses current week.
-            
-        Returns:
-            Redis key string
-        """
+        """Create Redis key for quota metadata."""
         if week_number is None:
             week_number = get_current_week_number()
         return f"{self.REDIS_KEY_PREFIX_META}:{student_id}:{week_number}"
@@ -207,24 +88,14 @@ class DistributedQuotaService:
     async def _get_initial_quota_from_db(
         self, student_id: str, week_number: Optional[int] = None
     ) -> Optional[DistributedQuotaState]:
-        """Get initial quota state from database.
-        
-        Args:
-            student_id: The student ID
-            week_number: The week number
-            
-        Returns:
-            DistributedQuotaState if found, None otherwise
-        """
-        from gateway.app.db.async_session import get_async_session
-        async with get_async_session() as session:
+        """Get initial quota state from database."""
+        from gateway.app.db import async_session
+        async with async_session.get_async_session() as session:
             student = await get_student_by_id(session, student_id)
             if student is None:
                 return None
-            
             if week_number is None:
                 week_number = get_current_week_number()
-            
             return DistributedQuotaState(
                 student_id=student_id,
                 current_week_quota=student.current_week_quota,
@@ -240,37 +111,18 @@ class DistributedQuotaService:
         initial_used: int,
         week_number: Optional[int] = None,
     ) -> bool:
-        """Initialize quota counters in Redis from database values.
-        
-        Uses Redis SET NX (set if not exists) to avoid overwriting existing values.
-        
-        Args:
-            student_id: The student ID
-            current_week_quota: Maximum quota for the week
-            initial_used: Initial used quota from DB
-            week_number: The week number
-            
-        Returns:
-            True if initialized successfully
-        """
+        """Initialize quota counters in Redis from database values."""
         redis = self._get_redis()
         if redis is None:
             return False
-        
         if week_number is None:
             week_number = get_current_week_number()
-        
         try:
             used_key = self._make_used_key(student_id, week_number)
             meta_key = self._make_meta_key(student_id, week_number)
-            
-            # Check if already exists (use SET NX pattern with SET + GET)
             existing = await redis.get(used_key)
             if existing is None:
-                # Initialize with current DB value
                 await redis.setex(used_key, self.REDIS_TTL_SECONDS, str(initial_used))
-                
-                # Store metadata
                 meta = {
                     "quota": current_week_quota,
                     "initialized_at": datetime.now().isoformat(),
@@ -278,7 +130,6 @@ class DistributedQuotaService:
                 }
                 await redis.setex(meta_key, self.REDIS_TTL_SECONDS, json.dumps(meta))
                 logger.debug(f"Initialized Redis quota for {student_id}: {initial_used}/{current_week_quota}")
-            
             return True
         except Exception as e:
             logger.warning(f"Failed to init Redis quota for {student_id}: {e}")
@@ -287,44 +138,26 @@ class DistributedQuotaService:
     async def get_quota_state(
         self, student_id: str, week_number: Optional[int] = None
     ) -> Optional[DistributedQuotaState]:
-        """Get quota state from Redis or database.
-        
-        Tries Redis first for distributed state, falls back to database.
-        
-        Args:
-            student_id: The student ID
-            week_number: The week number. If None, uses current week.
-            
-        Returns:
-            DistributedQuotaState if found, None otherwise
-        """
+        """Get quota state from Redis or database."""
         if week_number is None:
             week_number = get_current_week_number()
-        
         redis = self._get_redis()
-        
-        # Try Redis first
         if redis is not None:
             try:
                 used_key = self._make_used_key(student_id, week_number)
                 meta_key = self._make_meta_key(student_id, week_number)
-                
-                # Get both values concurrently
                 used_val, meta_val = await asyncio.gather(
                     redis.get(used_key),
                     redis.get(meta_key),
                     return_exceptions=True,
                 )
-                
                 if isinstance(used_val, Exception):
                     raise used_val
                 if isinstance(meta_val, Exception):
                     raise meta_val
-                
                 if used_val is not None and meta_val is not None:
                     used_quota = int(used_val)
                     meta = json.loads(meta_val)
-                    
                     return DistributedQuotaState(
                         student_id=student_id,
                         current_week_quota=meta.get("quota", 0),
@@ -334,8 +167,6 @@ class DistributedQuotaService:
                     )
             except Exception as e:
                 logger.warning(f"Redis get failed for {student_id}: {e}. Falling back to DB.")
-        
-        # Fall back to database
         return await self._get_initial_quota_from_db(student_id, week_number)
     
     async def check_and_consume_quota(
@@ -345,28 +176,10 @@ class DistributedQuotaService:
         tokens_needed: int,
         week_number: Optional[int] = None,
     ) -> tuple[bool, int, int]:
-        """Atomically check and consume quota using Redis or database.
-        
-        Uses Redis INCR for atomic distributed operations when available.
-        Falls back to database check_and_consume_quota when Redis is unavailable.
-        
-        Args:
-            student_id: The student ID
-            current_week_quota: Maximum tokens allowed for the week
-            tokens_needed: Number of tokens to consume
-            week_number: The academic week number. If None, uses current week.
-            
-        Returns:
-            Tuple of (success, remaining_quota, current_used)
-            - success: True if quota was sufficient and consumed
-            - remaining_quota: Remaining quota after operation
-            - current_used: Current used quota
-        """
+        """Atomically check and consume quota using Redis or database."""
         if week_number is None:
             week_number = get_current_week_number()
-        
         redis = self._get_redis()
-        
         if redis is not None:
             try:
                 return await self._check_and_consume_with_redis(
@@ -374,10 +187,8 @@ class DistributedQuotaService:
                 )
             except Exception as e:
                 logger.warning(f"Redis quota check failed for {student_id}: {e}. Falling back to DB.")
-        
-        # Fallback to database
-        from gateway.app.db.async_session import get_async_session
-        async with get_async_session() as session:
+        from gateway.app.db import async_session
+        async with async_session.get_async_session() as session:
             return await check_and_consume_quota(session, student_id, tokens_needed)
     
     async def _check_and_consume_with_redis(
@@ -387,36 +198,15 @@ class DistributedQuotaService:
         tokens_needed: int,
         week_number: int,
     ) -> tuple[bool, int, int]:
-        """Check and consume quota using Redis Lua script for atomicity.
-        
-        Uses Lua script for atomic check-and-consume to prevent TOCTOU race conditions.
-        The entire operation (check + increment) happens atomically on the Redis server.
-        
-        The Lua script handles lazy initialization automatically - if the key doesn't exist,
-        it starts from 0. A background sync task ensures eventual consistency with the database.
-        
-        Args:
-            student_id: The student ID
-            current_week_quota: Maximum tokens allowed for the week
-            tokens_needed: Number of tokens to consume
-            week_number: The academic week number
-            
-        Returns:
-            Tuple of (success, remaining_quota, current_used)
-        """
+        """Check and consume quota using Redis Lua script for atomicity."""
         redis = self._get_redis()
         if redis is None:
             raise RuntimeError("Redis not available")
-        
         used_key = self._make_used_key(student_id, week_number)
         meta_key = self._make_meta_key(student_id, week_number)
-        
-        # Execute Lua script for atomic check-and-consume
-        # The script automatically handles missing keys by starting from 0
-        # This eliminates the race condition between exists check and initialization
         try:
             result = await redis.eval(
-                self.CHECK_AND_CONSUME_SCRIPT,
+                CHECK_AND_CONSUME_SCRIPT,
                 2,  # Number of keys
                 used_key,  # KEYS[1]
                 meta_key,  # KEYS[2]
@@ -429,22 +219,16 @@ class DistributedQuotaService:
             )
         except Exception as e:
             logger.error(f"Lua script execution failed: {e}")
-            # Fallback to non-atomic method (less safe but better than hard failure)
             return await self._check_and_consume_fallback(
                 student_id, tokens_needed, current_week_quota, week_number
             )
-        
-        # Parse result: [success (0/1), remaining, new_used]
         success = bool(result[0])
         remaining = int(result[1])
         new_used = int(result[2])
-        
-        # Track for sync to DB
         if success:
             async with self._sync_lock:
                 self._pending_syncs[student_id] = new_used
-        
-        return success, remaining, new_usednew_used
+        return success, remaining, new_used
     
     async def _check_and_consume_fallback(
         self,
@@ -453,47 +237,23 @@ class DistributedQuotaService:
         current_week_quota: int,
         week_number: int,
     ) -> tuple[bool, int, int]:
-        """Fallback method for quota check-and-consume (non-atomic).
-        
-        This is used only when Lua script execution fails.
-        Not recommended for high-concurrency scenarios due to TOCTOU race conditions.
-        
-        Args:
-            student_id: The student ID
-            tokens_needed: Number of tokens to consume
-            current_week_quota: Maximum tokens allowed
-            week_number: The academic week number
-            
-        Returns:
-            Tuple of (success, remaining_quota, current_used)
-        """
+        """Fallback method for quota check-and-consume (non-atomic)."""
         redis = self._get_redis()
         if redis is None:
             raise RuntimeError("Redis not available")
-        
         used_key = self._make_used_key(student_id, week_number)
-        meta_key = self._make_meta_key(student_id, week_number)
-        
-        # Check current value
         current_val = await redis.get(used_key)
         if current_val is None:
             current_val = b"0"
-        
         current_used = int(current_val)
         remaining = current_week_quota - current_used
-        
         if remaining < tokens_needed:
             return False, remaining, current_used
-        
-        # Increment (non-atomic with check above)
         new_val = await redis.incrby(used_key, tokens_needed)
         new_used = int(new_val)
         new_remaining = current_week_quota - new_used
-        
-        # Track for sync to DB
         async with self._sync_lock:
             self._pending_syncs[student_id] = new_used
-        
         return True, new_remaining, new_used
     
     async def release_quota(
@@ -502,55 +262,29 @@ class DistributedQuotaService:
         tokens_to_release: int,
         week_number: Optional[int] = None,
     ) -> bool:
-        """Release previously reserved quota.
-        
-        Used when a request fails or is cancelled after quota was reserved.
-        
-        Args:
-            student_id: The student ID
-            tokens_to_release: Number of tokens to release
-            week_number: The academic week number. If None, uses current week.
-            
-        Returns:
-            True if released successfully
-        """
+        """Release previously reserved quota."""
         if week_number is None:
             week_number = get_current_week_number()
-        
         redis = self._get_redis()
-        
         if redis is not None:
             try:
                 used_key = self._make_used_key(student_id, week_number)
-                
-                # Use DECRBY to atomically decrease (but not below 0)
-                # DECRBY returns the new value
                 current = await redis.get(used_key)
                 if current is None:
                     return False
-                
                 current_val = int(current)
                 new_val = max(0, current_val - tokens_to_release)
-                
-                # Calculate actual release amount
                 actual_release = current_val - new_val
-                
                 if actual_release > 0:
                     await redis.decrby(used_key, actual_release)
-                    
-                    # Track for sync
                     async with self._sync_lock:
                         self._pending_syncs[student_id] = new_val
-                
                 return True
             except Exception as e:
                 logger.warning(f"Failed to release Redis quota for {student_id}: {e}")
-        
-        # Fallback: update database directly (negative adjustment)
-        from gateway.app.db.async_session import get_async_session
         try:
-            async with get_async_session() as session:
-                # Get current state
+            from gateway.app.db import async_session
+            async with async_session.get_async_session() as session:
                 student = await get_student_by_id(session, student_id)
                 if student:
                     new_used = max(0, student.used_quota - tokens_to_release)
@@ -560,17 +294,12 @@ class DistributedQuotaService:
                     return True
         except Exception as e:
             logger.error(f"Failed to release DB quota for {student_id}: {e}")
-        
         return False
     
     async def start_sync_task(self) -> None:
         """Start the periodic sync task to synchronize Redis state to database."""
-        if not self._enable_sync:
+        if not self._enable_sync or self._sync_task is not None:
             return
-        
-        if self._sync_task is not None:
-            return
-        
         self._shutdown_event.clear()
         self._sync_task = asyncio.create_task(self._sync_loop())
         logger.info("Started distributed quota sync task")
@@ -579,11 +308,8 @@ class DistributedQuotaService:
         """Stop the periodic sync task."""
         if self._sync_task is None:
             return
-        
         self._shutdown_event.set()
-        
         try:
-            # Wait for sync loop to finish with timeout
             await asyncio.wait_for(self._sync_task, timeout=5.0)
         except asyncio.TimeoutError:
             self._sync_task.cancel()
@@ -591,7 +317,6 @@ class DistributedQuotaService:
                 await self._sync_task
             except asyncio.CancelledError:
                 pass
-        
         self._sync_task = None
         logger.info("Stopped distributed quota sync task")
     
@@ -599,56 +324,39 @@ class DistributedQuotaService:
         """Background loop for periodic sync to database."""
         while not self._shutdown_event.is_set():
             try:
-                # Wait for sync interval or shutdown
                 await asyncio.wait_for(
                     self._shutdown_event.wait(),
                     timeout=self._sync_interval,
                 )
             except asyncio.TimeoutError:
-                # Time to sync
                 pass
-            
             if self._shutdown_event.is_set():
                 break
-            
             try:
                 await self.sync_to_database()
             except Exception as e:
                 logger.error(f"Error during quota sync: {e}")
     
     async def sync_to_database(self) -> int:
-        """Synchronize pending quota updates from Redis to database.
-        
-        Returns:
-            Number of students synced
-        """
+        """Synchronize pending quota updates from Redis to database."""
         redis = self._get_redis()
         if redis is None:
             return 0
-        
-        # Get pending syncs
         async with self._sync_lock:
             pending = dict(self._pending_syncs)
             self._pending_syncs.clear()
-        
         if not pending:
             return 0
-        
         synced_count = 0
-        
-        from gateway.app.db.async_session import get_async_session
-        async with get_async_session() as session:
+        from gateway.app.db import async_session
+        async with async_session.get_async_session() as session:
             for student_id, redis_used in pending.items():
                 try:
-                    # Get current DB state
                     student = await get_student_by_id(session, student_id)
                     if student is None:
                         continue
-                    
-                    # Calculate adjustment needed
                     db_used = student.used_quota
                     adjustment = redis_used - db_used
-                    
                     if adjustment != 0:
                         await update_student_quota(session, student_id, adjustment)
                         synced_count += 1
@@ -658,36 +366,20 @@ class DistributedQuotaService:
                         )
                 except Exception as e:
                     logger.error(f"Failed to sync quota for {student_id}: {e}")
-                    # Re-add to pending for next sync
                     async with self._sync_lock:
                         if student_id not in self._pending_syncs:
                             self._pending_syncs[student_id] = redis_used
-        
         if synced_count > 0:
             logger.info(f"Synced quota for {synced_count} students to database")
-        
         return synced_count
     
     async def get_multi_instance_quota(
         self, student_id: str, week_number: Optional[int] = None
     ) -> Optional[DistributedQuotaState]:
-        """Get quota state optimized for multi-instance deployments.
-        
-        This method prioritizes Redis state for distributed consistency.
-        
-        Args:
-            student_id: The student ID
-            week_number: The week number. If None, uses current week.
-            
-        Returns:
-            DistributedQuotaState if found, None otherwise
-        """
+        """Get quota state optimized for multi-instance deployments."""
         state = await self.get_quota_state(student_id, week_number)
-        
         if state is not None and state.source == "redis":
             return state
-        
-        # If only DB state available, try to initialize Redis
         if state is not None and state.source == "db":
             redis = self._get_redis()
             if redis is not None:
@@ -697,13 +389,11 @@ class DistributedQuotaService:
                     state.used_quota,
                     week_number,
                 )
-        
         return state
     
     async def close(self) -> None:
         """Close the service and cleanup resources."""
         await self.stop_sync_task()
-        
         if self._redis is not None:
             try:
                 await self._redis.close()
@@ -712,7 +402,6 @@ class DistributedQuotaService:
             self._redis = None
 
 
-# Global service instance
 _distributed_quota_service: Optional[DistributedQuotaService] = None
 
 
@@ -721,16 +410,7 @@ def get_distributed_quota_service(
     redis_url: Optional[str] = None,
     enable_sync: bool = True,
 ) -> DistributedQuotaService:
-    """Get the global distributed quota service instance.
-    
-    Args:
-        redis_client: Optional Redis client to use
-        redis_url: Optional Redis URL
-        enable_sync: Whether to enable periodic DB sync
-        
-    Returns:
-        DistributedQuotaService instance
-    """
+    """Get the global distributed quota service instance."""
     global _distributed_quota_service
     if _distributed_quota_service is None:
         _distributed_quota_service = DistributedQuotaService(
@@ -742,9 +422,6 @@ def get_distributed_quota_service(
 
 
 def reset_distributed_quota_service() -> None:
-    """Reset the global distributed quota service instance.
-    
-    Useful for testing.
-    """
+    """Reset the global distributed quota service instance."""
     global _distributed_quota_service
     _distributed_quota_service = None

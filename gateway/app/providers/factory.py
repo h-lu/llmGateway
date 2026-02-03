@@ -6,18 +6,25 @@ based on configuration, with support for multiple providers and fallback.
 
 from __future__ import annotations
 
-import os
-from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Type
 
 import httpx
 
-from gateway.app.core.config import settings
 from gateway.app.core.logging import get_logger
 from gateway.app.providers.base import BaseProvider
 from gateway.app.providers.deepseek import DeepSeekProvider
 from gateway.app.providers.openai import OpenAIProvider
 from gateway.app.providers.mock import MockProvider
+from gateway.app.providers.factory_base import (
+    register_providers_with_load_balancer,
+    try_get_shared_http_client,
+)
+from gateway.app.providers.factory_config import (
+    ProviderType,
+    ProviderConfig,
+    is_mock_mode,
+    load_all_provider_configs,
+)
 
 if TYPE_CHECKING:
     # Avoid circular imports at runtime
@@ -27,88 +34,12 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class ProviderType(str, Enum):
-    """Supported provider types."""
-    DEEPSEEK = "deepseek"
-    OPENAI = "openai"
-    MOCK = "mock"
-
-
 # Provider registry mapping types to classes
 _PROVIDER_REGISTRY: Dict[ProviderType, Type[BaseProvider]] = {
     ProviderType.DEEPSEEK: DeepSeekProvider,
     ProviderType.OPENAI: OpenAIProvider,
     ProviderType.MOCK: MockProvider,
 }
-
-
-class ProviderConfig:
-    """Configuration for a single provider.
-    
-    Attributes:
-        provider_type: The type of provider (deepseek, openai, etc.)
-        base_url: The API base URL
-        api_key: The API key
-        timeout: Request timeout in seconds
-        priority: Priority for fallback (lower number = higher priority)
-        enabled: Whether this provider is enabled
-    """
-    
-    def __init__(
-        self,
-        provider_type: ProviderType,
-        base_url: str,
-        api_key: str,
-        organization: Optional[str] = None,
-        timeout: float = 60.0,
-        priority: int = 1,
-        enabled: bool = True
-    ):
-        self.provider_type = provider_type
-        self.base_url = base_url
-        self.api_key = api_key
-        self.organization = organization
-        self.timeout = timeout
-        self.priority = priority
-        self.enabled = enabled
-    
-    @classmethod
-    def from_env(cls, prefix: str, provider_type: ProviderType) -> Optional["ProviderConfig"]:
-        """Create a ProviderConfig from environment variables.
-        
-        Args:
-            prefix: Environment variable prefix (e.g., "DEEPSEEK", "OPENAI")
-            provider_type: The type of provider
-            
-        Returns:
-            ProviderConfig if API key is set, None otherwise
-        """
-        api_key = os.getenv(f"{prefix}_API_KEY", "")
-        if not api_key:
-            return None
-        
-        # Get base URL with defaults
-        default_urls = {
-            ProviderType.DEEPSEEK: "https://api.deepseek.com/v1",
-            ProviderType.OPENAI: "https://api.openai.com/v1",
-        }
-        base_url = os.getenv(f"{prefix}_BASE_URL", default_urls.get(provider_type, ""))
-        
-        # Get optional settings
-        organization = os.getenv(f"{prefix}_ORGANIZATION") if provider_type == ProviderType.OPENAI else None
-        timeout = float(os.getenv(f"{prefix}_TIMEOUT", "60.0"))
-        priority = int(os.getenv(f"{prefix}_PRIORITY", "1"))
-        enabled = os.getenv(f"{prefix}_ENABLED", "true").lower() == "true"
-        
-        return cls(
-            provider_type=provider_type,
-            base_url=base_url,
-            api_key=api_key,
-            organization=organization,
-            timeout=timeout,
-            priority=priority,
-            enabled=enabled
-        )
 
 
 class ProviderFactory:
@@ -140,27 +71,7 @@ class ProviderFactory:
     
     def _load_configs(self) -> None:
         """Load provider configurations from environment."""
-        # Check if mock provider is forced (for testing)
-        if os.getenv("TEACHPROXY_MOCK_PROVIDER", "").lower() == "true":
-            logger.info("Mock provider mode enabled, skipping real provider configuration")
-            return
-        
-        # Load DeepSeek config
-        deepseek_config = ProviderConfig.from_env("DEEPSEEK", ProviderType.DEEPSEEK)
-        if deepseek_config:
-            self._configs[ProviderType.DEEPSEEK] = deepseek_config
-        elif settings.deepseek_api_key:
-            # Fallback to settings
-            self._configs[ProviderType.DEEPSEEK] = ProviderConfig(
-                provider_type=ProviderType.DEEPSEEK,
-                base_url=settings.deepseek_base_url,
-                api_key=settings.deepseek_api_key
-            )
-        
-        # Load OpenAI config
-        openai_config = ProviderConfig.from_env("OPENAI", ProviderType.OPENAI)
-        if openai_config:
-            self._configs[ProviderType.OPENAI] = openai_config
+        self._configs = load_all_provider_configs()
     
     def create_provider(
         self, 
@@ -227,7 +138,7 @@ class ProviderFactory:
         
         if not enabled_configs:
             # Check if we should use mock provider
-            if os.getenv("TEACHPROXY_MOCK_PROVIDER", "").lower() == "true":
+            if is_mock_mode():
                 logger.info("No providers configured, using mock provider for testing")
                 return MockProvider()
             raise RuntimeError("No providers are configured or enabled")
@@ -393,7 +304,7 @@ def get_load_balancer(
         # Use provided client or attempt to get from lifespan context
         client = http_client
         if client is None:
-            client = _try_get_shared_http_client()
+            client = try_get_shared_http_client()
         
         factory = get_provider_factory(client)
         health_checker = get_health_checker()
@@ -405,7 +316,7 @@ def get_load_balancer(
         )
         
         # Register all configured providers
-        _register_providers_with_load_balancer(_load_balancer, factory, client)
+        register_providers_with_load_balancer(_load_balancer, factory, client)
         
         logger.info(
             f"Load balancer initialized with strategy '{strategy}' "
@@ -413,59 +324,6 @@ def get_load_balancer(
         )
     
     return _load_balancer
-
-
-def _try_get_shared_http_client() -> Optional[httpx.AsyncClient]:
-    """Try to get the shared HTTP client from lifespan context.
-    
-    Returns:
-        The shared HTTP client if available, None otherwise (e.g., in tests
-        before lifespan is started).
-    """
-    try:
-        from gateway.app.core.http_client import get_http_client
-        return get_http_client()
-    except RuntimeError:
-        # HTTP client not initialized (e.g., in tests)
-        # Provider will create its own temporary client
-        return None
-
-
-def _register_providers_with_load_balancer(
-    load_balancer: "LoadBalancer",
-    factory: "ProviderFactory",
-    http_client: Optional[httpx.AsyncClient] = None
-) -> None:
-    """Register all configured providers with the load balancer.
-    
-    Args:
-        load_balancer: The load balancer to register providers with
-        factory: The provider factory
-        http_client: Optional HTTP client for creating providers
-    
-    Note:
-        Uses string type annotations to avoid circular imports.
-    """
-    configured_types = factory.list_configured_providers()
-    
-    # If no providers configured but mock is enabled, register mock provider
-    if not configured_types and os.getenv("TEACHPROXY_MOCK_PROVIDER", "").lower() == "true":
-        try:
-            mock_provider = MockProvider()
-            load_balancer.register_provider(mock_provider, name="mock")
-            logger.info("Registered mock provider with load balancer for testing")
-        except Exception as e:
-            logger.warning(f"Failed to register mock provider: {e}")
-        return
-    
-    for provider_type in configured_types:
-        try:
-            provider = factory.create_provider(provider_type)
-            provider_name = provider_type.value
-            load_balancer.register_provider(provider, name=provider_name)
-            logger.debug(f"Registered provider '{provider_name}' with load balancer")
-        except Exception as e:
-            logger.warning(f"Failed to register provider '{provider_type.value}': {e}")
 
 
 def reset_load_balancer() -> None:
