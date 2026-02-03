@@ -1,6 +1,6 @@
-"""Data models for rate limiting.
+"""Rate limiting data models.
 
-This module contains all dataclasses used for rate limiting functionality.
+This module contains dataclasses for rate limit state and results.
 """
 
 import time

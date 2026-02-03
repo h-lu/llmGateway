@@ -5,6 +5,7 @@ and ensure fair usage of the API. Supports both in-memory and Redis backends,
 with sliding window and token bucket algorithms.
 """
 
+import hashlib
 from typing import Optional
 
 from fastapi import HTTPException, Request, Response
@@ -12,33 +13,27 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from gateway.app.core.config import settings
 from gateway.app.core.logging import get_logger
-
-# Re-export models
+from gateway.app.middleware.rate_limit.backends import (
+    InMemoryRateLimiter,
+    RateLimitBackend,
+    RedisRateLimiter,
+)
 from gateway.app.middleware.rate_limit.models import (
     RateLimitEntry,
     RateLimitResult,
     TokenBucket,
 )
 
-# Re-export backends
-from gateway.app.middleware.rate_limit.backends import (
-    InMemoryRateLimiter,
-    RateLimitBackend,
-    RedisRateLimiter,
-)
-
 logger = get_logger(__name__)
 
+# Re-export main classes
 __all__ = [
-    # Models
     "RateLimitResult",
     "RateLimitEntry",
     "TokenBucket",
-    # Backends
     "RateLimitBackend",
     "InMemoryRateLimiter",
     "RedisRateLimiter",
-    # Main classes
     "RateLimiter",
     "RateLimitMiddleware",
 ]
@@ -142,15 +137,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         Returns:
             Rate limit key string (hashed, no sensitive data exposed)
         """
-        import hashlib
-        
         # Try to get API key from Authorization header
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
             api_key = auth[7:].strip()
             # Validate API key length to prevent DoS via extremely long keys
             if len(api_key) > 512:
-                from fastapi import HTTPException
                 raise HTTPException(status_code=400, detail="API key too long (max 512 characters)")
             # Use hash of API key to avoid storing raw keys in memory or cache
             # Use 32 hex chars (128 bits) for collision resistance

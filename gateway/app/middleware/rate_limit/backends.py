@@ -1,7 +1,7 @@
-"""Rate limit backend implementations.
+"""Rate limiting backend implementations.
 
-This module contains the abstract base class and concrete implementations
-for rate limiting backends: in-memory and Redis.
+This module contains abstract base class and concrete implementations
+for rate limit backends (in-memory and Redis).
 """
 
 import asyncio
