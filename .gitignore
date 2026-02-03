@@ -9,3 +9,39 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Project specific
+.env
+*.db
+*.sqlite
+*.sqlite3
+
+# Serena
+.serena/
+
+# Coverage
+.coverage
+htmlcov/
+.tox/
