@@ -1,6 +1,7 @@
 """Smart router for LLM provider selection."""
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -103,10 +104,13 @@ class SmartRouter:
     1. 学生自己的 Key（如果配置了）
     2. 教师 DeepSeek（如果有配额）
     3. 配额用完 → 异常（引导配置 Key）
+    
+    Mock 模式：当 TEACHPROXY_MOCK_PROVIDER=true 时，绕过真实 API 调用
     """
     
     def __init__(self):
         self.config = settings
+        self._is_mock_mode = os.getenv("TEACHPROXY_MOCK_PROVIDER", "").lower() == "true"
     
     async def route(
         self,
@@ -115,6 +119,19 @@ class SmartRouter:
     ) -> RoutingDecision:
         """路由决策。"""
         logger.debug(f"Routing for student {student.id}, model {requested_model}")
+        
+        # Mock 模式：返回模拟的路由决策
+        if self._is_mock_mode:
+            logger.info(f"Mock mode: using mock routing decision for {student.id}")
+            return RoutingDecision(
+                key_type=KeyType.TEACHER_DEEPSEEK,
+                provider_name="mock",
+                api_key="mock-key",
+                base_url="http://mock.provider",
+                model=requested_model or "deepseek-chat",
+                timeout=30.0,
+                cost_per_1m_tokens=(0.0, 0.0),
+            )
         
         # 1. 检查学生是否有自己的 Key
         if student.has_own_provider_key:
