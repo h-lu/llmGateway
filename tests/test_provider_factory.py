@@ -179,7 +179,7 @@ class TestProviderFactory:
         
         assert isinstance(provider, DeepSeekProvider)
     
-    @patch("gateway.app.providers.factory.settings")
+    @patch("gateway.app.providers.factory_config.settings")
     def test_create_primary_provider_none(self, mock_settings):
         """Test error when no providers are configured."""
         # Ensure no providers are configured
