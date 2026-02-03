@@ -54,8 +54,10 @@ class Settings(BaseSettings):
         """
         # Check for explicit DATABASE_URL (loaded via pydantic-settings from .env)
         if self.database_url_override:
+            # Allow SQLite for stress tests and mock provider mode
             if "sqlite" in self.database_url_override.lower():
-                raise ValueError("DATABASE_URL must use PostgreSQL")
+                if os.getenv("TEACHPROXY_MOCK_PROVIDER") != "true":
+                    raise ValueError("DATABASE_URL must use PostgreSQL (SQLite only allowed with TEACHPROXY_MOCK_PROVIDER=true)")
             return self.database_url_override
             
         # Check if running in pytest

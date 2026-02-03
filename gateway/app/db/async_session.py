@@ -47,32 +47,45 @@ def get_async_engine(database_url: str | None = None) -> AsyncEngine:
     """
     url = database_url or settings.database_url
 
-    # asyncpg-specific connection arguments for performance
-    # Reference: https://magicstack.github.io/asyncpg/current/api/index.html
-    # Note: SQLAlchemy's asyncpg dialect only supports limited parameters
-    connect_args = {
-        "command_timeout": settings.db_command_timeout,
-        "max_cached_statement_lifetime": settings.db_max_cached_statement_lifetime,
-        # max_queries and max_inactive_connection_lifetime are handled by pool_recycle instead
-    }
+    # Check if using SQLite (for tests/stress tests with mock provider)
+    is_sqlite = "sqlite" in url.lower()
 
-    engine = create_async_engine(
-        url,
-        echo=False,
-        future=True,
-        pool_size=settings.db_pool_size,  # 100
-        max_overflow=settings.db_max_overflow,  # 50
-        pool_timeout=settings.db_pool_timeout,
-        pool_recycle=settings.db_pool_recycle,
-        pool_pre_ping=settings.db_pool_pre_ping,
-        connect_args=connect_args,
-    )
-    logger.info(
-        f"Created async engine (pool_size={settings.db_pool_size}, "
-        f"max_overflow={settings.db_max_overflow}, "
-        f"pool_timeout={settings.db_pool_timeout}s, "
-        f"max_queries={settings.db_max_queries})"
-    )
+    if is_sqlite:
+        # SQLite-specific settings (simpler, no connection pool needed)
+        engine = create_async_engine(
+            url,
+            echo=False,
+            future=True,
+            pool_size=settings.db_sqlite_pool_size,
+            max_overflow=settings.db_sqlite_max_overflow,
+        )
+        logger.info(f"Created SQLite async engine (pool_size={settings.db_sqlite_pool_size})")
+    else:
+        # asyncpg-specific connection arguments for performance
+        # Reference: https://magicstack.github.io/asyncpg/current/api/index.html
+        # Note: SQLAlchemy's asyncpg dialect only supports limited parameters
+        connect_args = {
+            "command_timeout": settings.db_command_timeout,
+            "max_cached_statement_lifetime": settings.db_max_cached_statement_lifetime,
+            # max_queries and max_inactive_connection_lifetime are handled by pool_recycle instead
+        }
+
+        engine = create_async_engine(
+            url,
+            echo=False,
+            future=True,
+            pool_size=settings.db_pool_size,  # 100
+            max_overflow=settings.db_max_overflow,  # 50
+            pool_timeout=settings.db_pool_timeout,
+            pool_recycle=settings.db_pool_recycle,
+            pool_pre_ping=settings.db_pool_pre_ping,
+            connect_args=connect_args,
+        )
+        logger.info(
+            f"Created PostgreSQL async engine (pool_size={settings.db_pool_size}, "
+            f"max_overflow={settings.db_max_overflow}, "
+            f"pool_timeout={settings.db_pool_timeout}s)"
+        )
     return engine
 
 
@@ -176,6 +189,11 @@ async def warmup_connection_pool(min_connections: int = 50) -> None:
         min_connections: Minimum number of connections to pre-create
     """
     from sqlalchemy import text
+
+    # Skip warmup for SQLite
+    if "sqlite" in settings.database_url.lower():
+        logger.debug("Skipping connection pool warmup for SQLite")
+        return
 
     logger.info(f"Warming up connection pool with {min_connections} connections...")
     start_time = asyncio.get_event_loop().time()

@@ -400,6 +400,6 @@ async def chat_completions(
         # Release the request router slot
         if slot_acquired:
             if stream:
-                await request_router.release_streaming_slot()
+                request_router.release_streaming_slot()
             else:
-                await request_router.release_normal_slot()
+                request_router.release_normal_slot()
