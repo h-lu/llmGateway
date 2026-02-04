@@ -4,7 +4,25 @@ TeachProxy 教师管理面板 v2.0
 """
 import streamlit as st
 import sys
+import os
 from pathlib import Path
+
+# 添加项目根目录到路径
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# 加载 .env 文件
+try:
+    from dotenv import load_dotenv
+    env_path = project_root / ".env"
+    if env_path.exists():
+        load_dotenv(env_path)
+        print(f"✅ Loaded .env from {env_path}")
+    else:
+        print(f"⚠️ .env file not found at {env_path}")
+except ImportError:
+    print("⚠️ python-dotenv not installed, skipping .env loading")
 
 # 设置页面配置（必须是第一个 Streamlit 命令）
 st.set_page_config(
@@ -13,11 +31,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
 
 # 自定义 CSS 样式
 st.markdown("""
