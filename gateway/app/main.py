@@ -12,6 +12,7 @@ from starlette.requests import Request as StarletteRequest
 from gateway.app.api.chat import router as chat_router
 from gateway.app.api.metrics import router as metrics_router, MetricsMiddleware
 from gateway.app.api.weekly_prompts import router as weekly_prompts_router
+from gateway.app.api.admin import router as admin_router
 from gateway.app.core.http_client import init_http_client
 from gateway.app.core.logging import get_logger, setup_logging
 from gateway.app.core.gc_optimizer import gc_optimizer, setup_gc_optimization
@@ -169,6 +170,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(metrics_router, prefix="")
     app.include_router(weekly_prompts_router)
+    app.include_router(admin_router)
     
     @app.get("/health")
     async def health() -> dict[str, Any]:
