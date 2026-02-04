@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import api, { dashboardApi, studentsApi, conversationsApi, rulesApi, promptsApi } from './api'
+import { dashboardApi, studentsApi, conversationsApi, rulesApi, promptsApi } from './api'
 
 describe('API Client', () => {
   beforeEach(() => {
