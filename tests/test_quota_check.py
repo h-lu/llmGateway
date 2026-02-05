@@ -26,7 +26,7 @@ class TestQuotaCheck:
             used_quota=1000  # Exactly at limit
         )
         
-        from gateway.app.api.chat import check_student_quota
+        from gateway.app.api.chat_quota import check_student_quota
         
         with pytest.raises(QuotaExceededError) as exc_info:
             check_student_quota(student, week_number=5)
@@ -47,7 +47,7 @@ class TestQuotaCheck:
             used_quota=1500  # Over limit
         )
         
-        from gateway.app.api.chat import check_student_quota
+        from gateway.app.api.chat_quota import check_student_quota
         
         with pytest.raises(QuotaExceededError) as exc_info:
             check_student_quota(student, week_number=3)
@@ -68,7 +68,7 @@ class TestQuotaCheck:
             used_quota=500  # Under limit
         )
         
-        from gateway.app.api.chat import check_student_quota
+        from gateway.app.api.chat_quota import check_student_quota
         
         remaining = check_student_quota(student, week_number=2)
         assert remaining == 500
@@ -84,7 +84,7 @@ class TestQuotaCheck:
             used_quota=0
         )
         
-        from gateway.app.api.chat import check_student_quota
+        from gateway.app.api.chat_quota import check_student_quota
         
         with pytest.raises(QuotaExceededError) as exc_info:
             check_student_quota(student, week_number=1)
