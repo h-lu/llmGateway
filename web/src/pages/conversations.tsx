@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, User, MessageSquare, Download, X } from 'lucide-react';
 import { useDebounce } from '@/hooks/use-debounce';
-import type { Conversation } from '@/types';
+import type { Conversation, Student } from '@/types';
 
 export function ConversationsPage() {
   const [filters, setFilters] = useState({ 
@@ -127,7 +127,7 @@ export function ConversationsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Students</SelectItem>
-                  {students?.map((s: any) => (
+                  {students?.map((s: Student) => (
                     <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                   ))}
                 </SelectContent>
