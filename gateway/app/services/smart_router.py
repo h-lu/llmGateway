@@ -5,7 +5,6 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 from gateway.app.core.config import settings
 from gateway.app.db.models import Student
@@ -32,7 +31,7 @@ class RoutingDecision:
     base_url: str
     model: str
     timeout: float
-    fallback_models: Optional[list[str]] = None
+    fallback_models: list[str] | None = None
     cost_per_1m_tokens: tuple[float, float] = (0.0, 0.0)  # (input, output)
 
 
