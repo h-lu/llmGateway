@@ -1,0 +1,153 @@
+{
+  "metadata": {
+    "timestamp": "2026-02-03T15:40:01.805579",
+    "config": {
+      "concurrent_users": 20,
+      "duration_seconds": 60,
+      "base_url": "http://localhost:8000"
+    }
+  },
+  "summary": {
+    "total_requests": 374,
+    "successful_requests": 11,
+    "failed_requests": 363,
+    "success_rate": 0.0294,
+    "avg_rps": 6.23
+  },
+  "latency": {
+    "p50": 7.853984832763672,
+    "p95": 3132.0152282714844,
+    "p99": 3132.0152282714844
+  },
+  "errors": {
+    "http_413": 353,
+    "ReadError": 10
+  },
+  "request_types": {
+    "normal": {
+      "requests": 268,
+      "success_rate": 0.0,
+      "avg_latency_ms": 0
+    },
+    "streaming": {
+      "requests": 76,
+      "success_rate": 0.0,
+      "avg_latency_ms": 0
+    },
+    "rule_triggered": {
+      "requests": 30,
+      "success_rate": 0.3667,
+      "avg_latency_ms": 292.1
+    }
+  },
+  "snapshots": [
+    {
+      "timestamp": 1770104342.910402,
+      "total_requests": 21,
+      "success_count": 1,
+      "error_count": 20,
+      "active_users": 20,
+      "rps": 3.75,
+      "avg_latency_ms": 3132.02
+    },
+    {
+      "timestamp": 1770104347.911059,
+      "total_requests": 50,
+      "success_count": 1,
+      "error_count": 49,
+      "active_users": 20,
+      "rps": 5.8,
+      "avg_latency_ms": 3132.02
+    },
+    {
+      "timestamp": 1770104352.91144,
+      "total_requests": 84,
+      "success_count": 2,
+      "error_count": 82,
+      "active_users": 20,
+      "rps": 6.8,
+      "avg_latency_ms": 1571.64
+    },
+    {
+      "timestamp": 1770104357.911754,
+      "total_requests": 114,
+      "success_count": 3,
+      "error_count": 111,
+      "active_users": 20,
+      "rps": 6.0,
+      "avg_latency_ms": 8.4
+    },
+    {
+      "timestamp": 1770104362.913242,
+      "total_requests": 144,
+      "success_count": 4,
+      "error_count": 140,
+      "active_users": 20,
+      "rps": 6.0,
+      "avg_latency_ms": 8.27
+    },
+    {
+      "timestamp": 1770104367.913569,
+      "total_requests": 175,
+      "success_count": 6,
+      "error_count": 169,
+      "active_users": 20,
+      "rps": 6.2,
+      "avg_latency_ms": 7.12
+    },
+    {
+      "timestamp": 1770104372.914709,
+      "total_requests": 210,
+      "success_count": 8,
+      "error_count": 202,
+      "active_users": 20,
+      "rps": 7.0,
+      "avg_latency_ms": 7.19
+    },
+    {
+      "timestamp": 1770104377.915136,
+      "total_requests": 240,
+      "success_count": 8,
+      "error_count": 232,
+      "active_users": 20,
+      "rps": 6.0,
+      "avg_latency_ms": 6.99
+    },
+    {
+      "timestamp": 1770104382.916286,
+      "total_requests": 269,
+      "success_count": 9,
+      "error_count": 260,
+      "active_users": 20,
+      "rps": 5.8,
+      "avg_latency_ms": 8.74
+    },
+    {
+      "timestamp": 1770104387.9171221,
+      "total_requests": 306,
+      "success_count": 10,
+      "error_count": 296,
+      "active_users": 20,
+      "rps": 7.4,
+      "avg_latency_ms": 9.68
+    },
+    {
+      "timestamp": 1770104392.9181619,
+      "total_requests": 338,
+      "success_count": 11,
+      "error_count": 327,
+      "active_users": 20,
+      "rps": 6.4,
+      "avg_latency_ms": 9.43
+    },
+    {
+      "timestamp": 1770104397.918389,
+      "total_requests": 372,
+      "success_count": 11,
+      "error_count": 361,
+      "active_users": 20,
+      "rps": 6.8,
+      "avg_latency_ms": 7.55
+    }
+  ]
+}
