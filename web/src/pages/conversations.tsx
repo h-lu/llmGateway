@@ -12,10 +12,13 @@ import type { Conversation } from '@/types';
 export function ConversationsPage() {
   const [filters, setFilters] = useState({ action: '', student_id: '' });
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, isError } = useQuery({
     queryKey: ['conversations', filters],
     queryFn: () => conversationsApi.list({ limit: 100, ...filters }),
   });
+
+  console.log('Conversations data:', data);
+  console.log('isLoading:', isLoading, 'isError:', isError, 'error:', error);
 
   const getActionBadge = (action: string) => {
     switch (action) {
@@ -25,15 +28,15 @@ export function ConversationsPage() {
     }
   };
 
-  if (isLoading) return <div>Loading...</div>;
+  if (isLoading) return <div className="p-8">Loading conversations...</div>;
 
-  if (error) {
+  if (isError) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 p-8">
         <h2 className="text-3xl font-bold">Conversations</h2>
         <Card className="bg-red-50 border-red-200">
           <CardContent className="pt-6">
-            <p className="text-red-600">Error loading conversations: {(error as Error).message}</p>
+            <p className="text-red-600">Error loading conversations: {(error as Error)?.message || 'Unknown error'}</p>
           </CardContent>
         </Card>
       </div>
@@ -43,16 +46,21 @@ export function ConversationsPage() {
   const conversations = data?.items || [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-8">
       <h2 className="text-3xl font-bold">Conversations</h2>
+      
+      {/* Debug info */}
+      <div className="text-xs text-gray-400">
+        Debug: items={conversations.length}, total={data?.total ?? 'undefined'}
+      </div>
 
       <div className="flex gap-4">
-        <Select onValueChange={v => setFilters({...filters, action: v})}>
+        <Select onValueChange={v => setFilters({...filters, action: v === 'all' ? '' : v})}>
           <SelectTrigger className="w-40">
             <SelectValue placeholder="Filter by action" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All</SelectItem>
+            <SelectItem value="all">All</SelectItem>
             <SelectItem value="blocked">Blocked</SelectItem>
             <SelectItem value="guided">Guided</SelectItem>
             <SelectItem value="passed">Passed</SelectItem>
