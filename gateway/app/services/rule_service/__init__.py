@@ -7,6 +7,7 @@ Refactored package structure splitting the original 716-line rule_service.py int
 - hardcoded_rules.py: Hardcoded rules
 - service.py: Main service class
 """
+
 from gateway.app.services.rule_service.models import RuleResult
 from gateway.app.services.rule_service.patterns import (
     BLOCK_PATTERNS,

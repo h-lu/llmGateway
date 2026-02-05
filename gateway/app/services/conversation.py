@@ -1,4 +1,5 @@
 """Conversation database operations."""
+
 from datetime import datetime
 
 from gateway.app.db.models import Conversation

@@ -24,14 +24,10 @@ class Student(Base):
 
     # Balance Architecture: Student's own provider key
     provider_api_key_encrypted: Mapped[str | None] = mapped_column(
-        String(500),
-        nullable=True,
-        comment="学生自己的 AI 提供商 API Key（加密存储）"
+        String(500), nullable=True, comment="学生自己的 AI 提供商 API Key（加密存储）"
     )
     provider_type: Mapped[str] = mapped_column(
-        String(50),
-        default="deepseek",
-        comment="提供商类型: deepseek/openrouter"
+        String(50), default="deepseek", comment="提供商类型: deepseek/openrouter"
     )
 
     @property
@@ -44,6 +40,7 @@ class Student(Base):
         if not self.provider_api_key_encrypted:
             return None
         from gateway.app.core.security import decrypt_api_key
+
         return decrypt_api_key(self.provider_api_key_encrypted, cipher)
 
 

@@ -2,10 +2,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from admin.db_utils_v2 import (
-    get_all_students, create_student, get_student_by_id,
-    update_student_quota, reset_student_quota,
-    regenerate_student_api_key, delete_student,
-    get_student_quota_stats
+    get_all_students,
+    create_student,
+    get_student_by_id,
+    update_student_quota,
+    reset_student_quota,
+    regenerate_student_api_key,
+    delete_student,
+    get_student_quota_stats,
 )
 
 router = APIRouter()
@@ -40,14 +44,9 @@ async def list_students() -> list[dict]:
 async def create_new_student(data: StudentCreate) -> dict:
     """Create a new student."""
     student, api_key = create_student(
-        name=data.name,
-        email=data.email,
-        quota=data.quota
+        name=data.name, email=data.email, quota=data.quota
     )
-    return {
-        "student": student,
-        "api_key": api_key
-    }
+    return {"student": student, "api_key": api_key}
 
 
 @router.get("/{student_id}")

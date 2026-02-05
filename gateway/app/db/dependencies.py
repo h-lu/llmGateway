@@ -6,7 +6,7 @@ following the FastAPI best practices for dependency injection.
 Usage:
     from fastapi import Depends
     from gateway.app.db.dependencies import SessionDep
-    
+
     @app.get("/items")
     async def get_items(session: SessionDep):
         result = await session.execute(select(Item))

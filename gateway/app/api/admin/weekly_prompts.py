@@ -2,9 +2,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from admin.db_utils_v2 import (
-    get_all_weekly_prompts, get_prompt_by_week,
-    get_current_week_prompt, create_or_update_weekly_prompt,
-    delete_weekly_prompt
+    get_all_weekly_prompts,
+    get_prompt_by_week,
+    get_current_week_prompt,
+    create_or_update_weekly_prompt,
+    delete_weekly_prompt,
 )
 
 router = APIRouter()

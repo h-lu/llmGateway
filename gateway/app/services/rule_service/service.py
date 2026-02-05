@@ -1,4 +1,5 @@
 """RuleService main class."""
+
 from __future__ import annotations
 
 import re
@@ -56,6 +57,7 @@ class RuleService:
             # Cache miss, load from DB
             # Import here to allow tests to patch at package level
             from gateway.app.services.rule_service import get_all_rules_async
+
             try:
                 rules = await get_all_rules_async(self.db)
             except Exception:
@@ -120,7 +122,9 @@ class RuleService:
         self._cache_valid = False
         self._use_hardcoded = False
         self._rules_cache = []
-        logger.info("Rules reload scheduled (use reload_rules_async for immediate effect)")
+        logger.info(
+            "Rules reload scheduled (use reload_rules_async for immediate effect)"
+        )
 
     def evaluate_prompt(self, prompt: str, week_number: int) -> RuleResult:
         """Evaluate a prompt against active rules (sync version).
@@ -160,9 +164,7 @@ class RuleService:
             if rule.id in self._compiled_patterns:
                 if self._compiled_patterns[rule.id].search(prompt):
                     return RuleResult(
-                        action="blocked",
-                        message=rule.message,
-                        rule_id=str(rule.id)
+                        action="blocked", message=rule.message, rule_id=str(rule.id)
                     )
 
         # Then, check guide rules
@@ -174,9 +176,7 @@ class RuleService:
             if rule.id in self._compiled_patterns:
                 if self._compiled_patterns[rule.id].search(prompt):
                     return RuleResult(
-                        action="guided",
-                        message=rule.message,
-                        rule_id=str(rule.id)
+                        action="guided", message=rule.message, rule_id=str(rule.id)
                     )
 
         return RuleResult(action="passed")
@@ -214,9 +214,7 @@ class RuleService:
                 )
                 if match:
                     return RuleResult(
-                        action="blocked",
-                        message=rule.message,
-                        rule_id=str(rule.id)
+                        action="blocked", message=rule.message, rule_id=str(rule.id)
                     )
 
         # Then, check guide rules
@@ -231,9 +229,7 @@ class RuleService:
                 )
                 if match:
                     return RuleResult(
-                        action="guided",
-                        message=rule.message,
-                        rule_id=str(rule.id)
+                        action="guided", message=rule.message, rule_id=str(rule.id)
                     )
 
         return RuleResult(action="passed")
@@ -251,21 +247,21 @@ class RuleService:
                     return RuleResult(
                         action="blocked",
                         message=message,
-                        rule_id=f"hardcoded:{pattern}"
+                        rule_id=f"hardcoded:{pattern}",
                     )
 
         # Guide patterns - always active
         for pattern, message in GUIDE_PATTERNS:
             if re.search(pattern, prompt):
                 return RuleResult(
-                    action="guided",
-                    message=message,
-                    rule_id=f"hardcoded:{pattern}"
+                    action="guided", message=message, rule_id=f"hardcoded:{pattern}"
                 )
 
         return RuleResult(action="passed")
 
-    async def _evaluate_hardcoded_async(self, prompt: str, week_number: int) -> RuleResult:
+    async def _evaluate_hardcoded_async(
+        self, prompt: str, week_number: int
+    ) -> RuleResult:
         """Evaluate using hardcoded rules as fallback (async version with timeout).
 
         This version has ReDoS protection via regex timeout.
@@ -279,7 +275,7 @@ class RuleService:
                     return RuleResult(
                         action="blocked",
                         message=message,
-                        rule_id=f"hardcoded:{pattern}"
+                        rule_id=f"hardcoded:{pattern}",
                     )
 
         # Guide patterns - always active
@@ -288,9 +284,7 @@ class RuleService:
             match = await _regex_search_with_timeout(compiled, prompt)
             if match:
                 return RuleResult(
-                    action="guided",
-                    message=message,
-                    rule_id=f"hardcoded:{pattern}"
+                    action="guided", message=message, rule_id=f"hardcoded:{pattern}"
                 )
 
         return RuleResult(action="passed")

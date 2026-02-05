@@ -25,24 +25,24 @@ logger = logging.getLogger(__name__)
 
 class DistributedQuotaService:
     """Service for distributed quota management using Redis.
-    
+
     Provides:
     - Atomic quota operations using Redis Lua scripts
     - Multi-instance quota sharing
     - Periodic sync from Redis to database (every 60 seconds)
     - Fallback to database when Redis is unavailable
     - Backward compatibility with single-instance mode
-    
+
     Redis key format:
     - quota:used:{student_id}:{week_number} - Current used quota counter
     - quota:meta:{student_id}:{week_number} - Metadata (quota limit, last_sync)
     """
-    
+
     REDIS_KEY_PREFIX_USED = "quota:used"
     REDIS_KEY_PREFIX_META = "quota:meta"
     SYNC_INTERVAL_SECONDS = 60  # Sync to DB every minute
     REDIS_TTL_SECONDS = 86400 * 7  # 7 days TTL for weekly quota data
-    
+
     def __init__(
         self,
         redis_client: Optional[Any] = None,
@@ -58,7 +58,7 @@ class DistributedQuotaService:
         self._shutdown_event = asyncio.Event()
         self._pending_syncs: Dict[str, int] = {}
         self._sync_lock = asyncio.Lock()
-    
+
     def _get_redis(self) -> Optional[Any]:
         """Get or create Redis client."""
         if self._redis is not None:
@@ -67,29 +67,31 @@ class DistributedQuotaService:
             return None
         try:
             import redis.asyncio as aioredis
+
             self._redis = aioredis.from_url(self._redis_url)
             return self._redis
         except Exception as e:
             logger.warning(f"Failed to connect to Redis: {e}. Using database fallback.")
             return None
-    
+
     def _make_used_key(self, student_id: str, week_number: Optional[int] = None) -> str:
         """Create Redis key for used quota counter."""
         if week_number is None:
             week_number = get_current_week_number()
         return f"{self.REDIS_KEY_PREFIX_USED}:{student_id}:{week_number}"
-    
+
     def _make_meta_key(self, student_id: str, week_number: Optional[int] = None) -> str:
         """Create Redis key for quota metadata."""
         if week_number is None:
             week_number = get_current_week_number()
         return f"{self.REDIS_KEY_PREFIX_META}:{student_id}:{week_number}"
-    
+
     async def _get_initial_quota_from_db(
         self, student_id: str, week_number: Optional[int] = None
     ) -> Optional[DistributedQuotaState]:
         """Get initial quota state from database."""
         from gateway.app.db import async_session
+
         async with async_session.get_async_session() as session:
             student = await get_student_by_id(session, student_id)
             if student is None:
@@ -103,7 +105,7 @@ class DistributedQuotaService:
                 week_number=week_number,
                 source="db",
             )
-    
+
     async def _init_redis_quota(
         self,
         student_id: str,
@@ -129,12 +131,14 @@ class DistributedQuotaService:
                     "initial_used": initial_used,
                 }
                 await redis.setex(meta_key, self.REDIS_TTL_SECONDS, json.dumps(meta))
-                logger.debug(f"Initialized Redis quota for {student_id}: {initial_used}/{current_week_quota}")
+                logger.debug(
+                    f"Initialized Redis quota for {student_id}: {initial_used}/{current_week_quota}"
+                )
             return True
         except Exception as e:
             logger.warning(f"Failed to init Redis quota for {student_id}: {e}")
             return False
-    
+
     async def get_quota_state(
         self, student_id: str, week_number: Optional[int] = None
     ) -> Optional[DistributedQuotaState]:
@@ -166,9 +170,11 @@ class DistributedQuotaService:
                         source="redis",
                     )
             except Exception as e:
-                logger.warning(f"Redis get failed for {student_id}: {e}. Falling back to DB.")
+                logger.warning(
+                    f"Redis get failed for {student_id}: {e}. Falling back to DB."
+                )
         return await self._get_initial_quota_from_db(student_id, week_number)
-    
+
     async def check_and_consume_quota(
         self,
         student_id: str,
@@ -186,11 +192,14 @@ class DistributedQuotaService:
                     student_id, current_week_quota, tokens_needed, week_number
                 )
             except Exception as e:
-                logger.warning(f"Redis quota check failed for {student_id}: {e}. Falling back to DB.")
+                logger.warning(
+                    f"Redis quota check failed for {student_id}: {e}. Falling back to DB."
+                )
         from gateway.app.db import async_session
+
         async with async_session.get_async_session() as session:
             return await check_and_consume_quota(session, student_id, tokens_needed)
-    
+
     async def _check_and_consume_with_redis(
         self,
         student_id: str,
@@ -229,7 +238,7 @@ class DistributedQuotaService:
             async with self._sync_lock:
                 self._pending_syncs[student_id] = new_used
         return success, remaining, new_used
-    
+
     async def _check_and_consume_fallback(
         self,
         student_id: str,
@@ -255,7 +264,7 @@ class DistributedQuotaService:
         async with self._sync_lock:
             self._pending_syncs[student_id] = new_used
         return True, new_remaining, new_used
-    
+
     async def release_quota(
         self,
         student_id: str,
@@ -284,6 +293,7 @@ class DistributedQuotaService:
                 logger.warning(f"Failed to release Redis quota for {student_id}: {e}")
         try:
             from gateway.app.db import async_session
+
             async with async_session.get_async_session() as session:
                 student = await get_student_by_id(session, student_id)
                 if student:
@@ -295,7 +305,7 @@ class DistributedQuotaService:
         except Exception as e:
             logger.error(f"Failed to release DB quota for {student_id}: {e}")
         return False
-    
+
     async def start_sync_task(self) -> None:
         """Start the periodic sync task to synchronize Redis state to database."""
         if not self._enable_sync or self._sync_task is not None:
@@ -303,7 +313,7 @@ class DistributedQuotaService:
         self._shutdown_event.clear()
         self._sync_task = asyncio.create_task(self._sync_loop())
         logger.info("Started distributed quota sync task")
-    
+
     async def stop_sync_task(self) -> None:
         """Stop the periodic sync task."""
         if self._sync_task is None:
@@ -319,7 +329,7 @@ class DistributedQuotaService:
                 pass
         self._sync_task = None
         logger.info("Stopped distributed quota sync task")
-    
+
     async def _sync_loop(self) -> None:
         """Background loop for periodic sync to database."""
         while not self._shutdown_event.is_set():
@@ -336,7 +346,7 @@ class DistributedQuotaService:
                 await self.sync_to_database()
             except Exception as e:
                 logger.error(f"Error during quota sync: {e}")
-    
+
     async def sync_to_database(self) -> int:
         """Synchronize pending quota updates from Redis to database."""
         redis = self._get_redis()
@@ -349,6 +359,7 @@ class DistributedQuotaService:
             return 0
         synced_count = 0
         from gateway.app.db import async_session
+
         async with async_session.get_async_session() as session:
             for student_id, redis_used in pending.items():
                 try:
@@ -372,7 +383,7 @@ class DistributedQuotaService:
         if synced_count > 0:
             logger.info(f"Synced quota for {synced_count} students to database")
         return synced_count
-    
+
     async def get_multi_instance_quota(
         self, student_id: str, week_number: Optional[int] = None
     ) -> Optional[DistributedQuotaState]:
@@ -390,7 +401,7 @@ class DistributedQuotaService:
                     week_number,
                 )
         return state
-    
+
     async def close(self) -> None:
         """Close the service and cleanup resources."""
         await self.stop_sync_task()

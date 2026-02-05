@@ -2,8 +2,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from admin.db_utils_v2 import (
-    get_all_rules, create_rule, update_rule,
-    delete_rule, toggle_rule_enabled
+    get_all_rules,
+    create_rule,
+    update_rule,
+    delete_rule,
+    toggle_rule_enabled,
 )
 from gateway.app.services.rule_service import reload_rules
 
@@ -42,7 +45,9 @@ async def create_new_rule(data: RuleCreate) -> dict:
 @router.put("/{rule_id}")
 async def update_existing_rule(rule_id: int, data: RuleUpdate) -> dict:
     """Update a rule."""
-    success = update_rule(rule_id, **{k: v for k, v in data.dict().items() if v is not None})
+    success = update_rule(
+        rule_id, **{k: v for k, v in data.dict().items() if v is not None}
+    )
     if not success:
         raise HTTPException(status_code=404, detail="Rule not found")
     return {"success": True}

@@ -1,4 +1,5 @@
 """Regex utilities with timeout support."""
+
 from __future__ import annotations
 
 import re
@@ -31,12 +32,12 @@ async def _regex_search_with_timeout(
     timeout: float = REGEX_TIMEOUT_SECONDS,
 ) -> re.Match | None:
     """Execute regex search asynchronously with timeout protection.
-    
+
     Args:
         pattern: Compiled regex pattern
         text: Text to search
         timeout: Timeout in seconds
-        
+
     Returns:
         Match result or None
     """
@@ -44,7 +45,7 @@ async def _regex_search_with_timeout(
     try:
         return await asyncio.wait_for(
             loop.run_in_executor(_regex_executor, _regex_search_sync, pattern, text),
-            timeout=timeout
+            timeout=timeout,
         )
     except asyncio.TimeoutError:
         logger.warning(f"Regex timeout after {timeout}s")

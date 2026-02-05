@@ -59,7 +59,9 @@ def get_async_engine(database_url: str | None = None) -> AsyncEngine:
             pool_size=settings.db_sqlite_pool_size,
             max_overflow=settings.db_sqlite_max_overflow,
         )
-        logger.info(f"Created SQLite async engine (pool_size={settings.db_sqlite_pool_size})")
+        logger.info(
+            f"Created SQLite async engine (pool_size={settings.db_sqlite_pool_size})"
+        )
     else:
         # asyncpg-specific connection arguments for performance
         # Reference: https://magicstack.github.io/asyncpg/current/api/index.html
@@ -91,7 +93,7 @@ def get_async_engine(database_url: str | None = None) -> AsyncEngine:
 
 async def get_pool_status() -> dict:
     """Get current connection pool status for monitoring.
-    
+
     Returns:
         Dictionary with pool statistics
     """

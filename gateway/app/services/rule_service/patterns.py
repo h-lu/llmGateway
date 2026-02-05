@@ -1,4 +1,5 @@
 """Rule patterns and utilities."""
+
 from __future__ import annotations
 
 from gateway.app.core.logging import get_logger
@@ -7,12 +8,30 @@ logger = get_logger(__name__)
 
 # Hardcoded rule patterns - matching original rule_service.py behavior
 BLOCK_PATTERNS: list[tuple[str, str]] = [
-    (r"写一个.+程序", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
-    (r"帮我实现.+", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
-    (r"生成.+代码", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
-    (r"给我.+的代码", "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
-    (r"这道题的答案是什么", "检测到你在直接要求答案。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
-    (r"帮我做.+作业", "检测到你在直接要求代做作业。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)"),
+    (
+        r"写一个.+程序",
+        "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)",
+    ),
+    (
+        r"帮我实现.+",
+        "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)",
+    ),
+    (
+        r"生成.+代码",
+        "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)",
+    ),
+    (
+        r"给我.+的代码",
+        "检测到你在直接要求代码。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)",
+    ),
+    (
+        r"这道题的答案是什么",
+        "检测到你在直接要求答案。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)",
+    ),
+    (
+        r"帮我做.+作业",
+        "检测到你在直接要求代做作业。根据课程要求，请先尝试：\n1. 描述你想解决什么问题\n2. 说明你已经尝试了什么\n3. 具体哪里卡住了\n\n请重新组织你的问题 :)",
+    ),
 ]
 
 GUIDE_PATTERNS: list[tuple[str, str]] = [
@@ -23,19 +42,19 @@ GUIDE_PATTERNS: list[tuple[str, str]] = [
 
 def parse_week_range(week_range_str: str | None) -> tuple[int, int]:
     """Parse week range string.
-    
+
     Args:
         week_range_str: Format "1-16" or "1" or "1,3,5"
-        
+
     Returns:
         (start_week, end_week) tuple
     """
     if not week_range_str:
         return (1, 99)
-    
+
     # Strip whitespace from the input
     week_range_str = week_range_str.strip()
-    
+
     try:
         if "-" in week_range_str:
             parts = week_range_str.split("-")

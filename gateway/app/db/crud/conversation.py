@@ -1,4 +1,5 @@
 """Conversation CRUD operations."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -18,10 +19,10 @@ async def save_conversation(
     action: str,
     rule_triggered: str | None,
     week_number: int,
-    auto_commit: bool = True
+    auto_commit: bool = True,
 ) -> Conversation:
     """Save a conversation record to the database.
-    
+
     Args:
         session: Database session from FastAPI dependency
         student_id: The student ID
@@ -33,7 +34,7 @@ async def save_conversation(
         week_number: The academic week number
         auto_commit: Whether to commit the transaction. Set to False
                      if you want to control transaction boundaries manually.
-        
+
     Returns:
         The saved Conversation object
     """
@@ -55,28 +56,26 @@ async def save_conversation(
 
 
 async def save_conversation_bulk(
-    session: AsyncSession,
-    conversations: list[Conversation],
-    auto_commit: bool = True
+    session: AsyncSession, conversations: list[Conversation], auto_commit: bool = True
 ) -> int:
     """Save multiple conversation records to the database in bulk.
-    
+
     This function performs an efficient bulk insert using SQLAlchemy's
     session.add_all() method, which is more performant than inserting
     records one at a time.
-    
+
     Args:
         session: Database session from FastAPI dependency
         conversations: List of Conversation objects to save
         auto_commit: Whether to commit the transaction. Set to False
                      if you want to control transaction boundaries manually.
-        
+
     Returns:
         Number of conversations saved
     """
     if not conversations:
         return 0
-    
+
     session.add_all(conversations)
     if auto_commit:
         await session.commit()
@@ -84,17 +83,15 @@ async def save_conversation_bulk(
 
 
 async def get_conversations_by_student(
-    session: AsyncSession,
-    student_id: str,
-    limit: int = 100
+    session: AsyncSession, student_id: str, limit: int = 100
 ) -> list[Conversation]:
     """Get conversations for a specific student.
-    
+
     Args:
         session: Database session from FastAPI dependency
         student_id: The student ID
         limit: Maximum number of conversations to return
-        
+
     Returns:
         List of conversations
     """
@@ -108,21 +105,18 @@ async def get_conversations_by_student(
 
 
 async def get_recent_conversations(
-    session: AsyncSession,
-    limit: int = 100
+    session: AsyncSession, limit: int = 100
 ) -> list[Conversation]:
     """Get recent conversations across all students.
-    
+
     Args:
         session: Database session from FastAPI dependency
         limit: Maximum number of conversations to return
-        
+
     Returns:
         List of recent conversations
     """
     result = await session.execute(
-        select(Conversation)
-        .order_by(Conversation.timestamp.desc())
-        .limit(limit)
+        select(Conversation).order_by(Conversation.timestamp.desc()).limit(limit)
     )
     return list(result.scalars().all())

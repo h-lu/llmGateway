@@ -5,7 +5,11 @@ with fallback to database when Redis is unavailable.
 """
 
 # Re-export DB functions for backward compatibility (tests mock these)
-from gateway.app.db.crud import check_and_consume_quota, update_student_quota, get_student_by_id
+from gateway.app.db.crud import (
+    check_and_consume_quota,
+    update_student_quota,
+    get_student_by_id,
+)
 
 from .models import DistributedQuotaState
 from .redis_lua import CHECK_AND_CONSUME_SCRIPT

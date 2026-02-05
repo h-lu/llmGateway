@@ -14,58 +14,56 @@ from gateway.app.db.weekly_prompt_crud import get_active_prompt_for_week
 
 class WeeklyPromptService:
     """Service for managing weekly system prompts.
-    
+
     Implements in-memory caching for the current week's prompt
     to minimize database queries and maximize consistency.
-    
+
     Cache strategy:
     - Cache the prompt for the current week
     - Invalidate when week number changes
     - Single instance per application (use get_weekly_prompt_service())
     """
-    
+
     def __init__(self):
         self._cached_week: Optional[int] = None
         self._cached_prompt: Optional[WeeklySystemPrompt] = None
         self._cache_valid: bool = False
-    
+
     async def get_prompt_for_week(
-        self,
-        session: AsyncSession,
-        week_number: int
+        self, session: AsyncSession, week_number: int
     ) -> Optional[WeeklySystemPrompt]:
         """Get the system prompt for a specific week.
-        
+
         Uses in-memory caching to avoid repeated DB queries
         for the same week.
-        
+
         Args:
             session: Database session
             week_number: Current week number
-            
+
         Returns:
             WeeklySystemPrompt if configured, None otherwise
         """
         # Check cache - use cache_valid flag to handle None values correctly
         if self._cached_week == week_number and self._cache_valid:
             return self._cached_prompt
-        
+
         # Cache miss or week changed - fetch from DB
         prompt = await get_active_prompt_for_week(session, week_number)
-        
+
         # Update cache
         self._cached_week = week_number
         self._cached_prompt = prompt
         self._cache_valid = True
-        
+
         return prompt
-    
+
     def invalidate_cache(self) -> None:
         """Invalidate the current cache."""
         self._cached_week = None
         self._cached_prompt = None
         self._cache_valid = False
-    
+
     def reload(self) -> None:
         """Force reload on next request."""
         self.invalidate_cache()
@@ -77,7 +75,7 @@ _weekly_prompt_service: Optional[WeeklyPromptService] = None
 
 def get_weekly_prompt_service() -> WeeklyPromptService:
     """Get the global WeeklyPromptService instance (singleton).
-    
+
     Returns:
         WeeklyPromptService singleton instance
     """
@@ -94,33 +92,29 @@ def reset_weekly_prompt_service() -> None:
 
 
 async def inject_weekly_system_prompt(
-    messages: List[Dict[str, Any]],
-    weekly_prompt: Optional[WeeklySystemPrompt]
+    messages: List[Dict[str, Any]], weekly_prompt: Optional[WeeklySystemPrompt]
 ) -> List[Dict[str, Any]]:
     """Inject weekly system prompt into messages.
-    
+
     Replaces any existing system message with the weekly prompt.
     If no system message exists, adds one at the beginning.
-    
+
     This ensures all students in the same week receive identical
     system prompt prefixes, maximizing KV cache efficiency.
-    
+
     Args:
         messages: Original message list
         weekly_prompt: Weekly system prompt to inject, or None to skip
-        
+
     Returns:
         Modified message list with weekly system prompt
     """
     if weekly_prompt is None:
         return messages
-    
+
     # Create new system message from weekly prompt
-    system_message = {
-        "role": "system",
-        "content": weekly_prompt.system_prompt
-    }
-    
+    system_message = {"role": "system", "content": weekly_prompt.system_prompt}
+
     # Check if first message is already system
     if messages and messages[0].get("role") == "system":
         # Replace existing system message
@@ -128,22 +122,20 @@ async def inject_weekly_system_prompt(
     else:
         # Add system message at the beginning
         new_messages = [system_message] + messages
-    
+
     return new_messages
 
 
 async def get_and_inject_weekly_prompt(
-    session: AsyncSession,
-    messages: List[Dict[str, Any]],
-    week_number: int
+    session: AsyncSession, messages: List[Dict[str, Any]], week_number: int
 ) -> List[Dict[str, Any]]:
     """Convenience function: get weekly prompt and inject into messages.
-    
+
     Args:
         session: Database session
         messages: Original message list
         week_number: Current week number
-        
+
     Returns:
         Modified message list with weekly system prompt (if configured)
     """

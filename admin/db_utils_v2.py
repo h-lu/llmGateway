@@ -2,6 +2,7 @@
 TeachProxy Admin Panel - Database Utilities v2
 现代化的数据库工具类，支持同步操作
 """
+
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
@@ -20,7 +21,11 @@ if str(project_root) not in sys.path:
 
 from gateway.app.core.config import settings  # noqa: E402
 from gateway.app.db.models import (  # noqa: E402
-    Student, Conversation, Rule, WeeklySystemPrompt, QuotaLog
+    Student,
+    Conversation,
+    Rule,
+    WeeklySystemPrompt,
+    QuotaLog,
 )
 from gateway.app.core.utils import get_current_week_number  # noqa: E402
 
@@ -41,7 +46,7 @@ engine = create_engine(
     pool_size=10,
     max_overflow=20,
     pool_pre_ping=True,
-    echo=False
+    echo=False,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -63,6 +68,7 @@ def get_db_session() -> Session:
 
 # ==================== 仪表板统计 ====================
 
+
 def get_dashboard_stats() -> Dict[str, Any]:
     """获取仪表板统计数据"""
     with get_db_session() as session:
@@ -70,36 +76,48 @@ def get_dashboard_stats() -> Dict[str, Any]:
         student_count = session.query(func.count(Student.id)).scalar() or 0
         conversation_count = session.query(func.count(Conversation.id)).scalar() or 0
         rule_count = session.query(func.count(Rule.id)).scalar() or 0
-        
+
         # 今日统计
         today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        conversations_today = session.query(func.count(Conversation.id)).filter(
-            Conversation.timestamp >= today_start
-        ).scalar() or 0
-        
-        tokens_today = session.query(func.sum(Conversation.tokens_used)).filter(
-            Conversation.timestamp >= today_start
-        ).scalar() or 0
-        
+        conversations_today = (
+            session.query(func.count(Conversation.id))
+            .filter(Conversation.timestamp >= today_start)
+            .scalar()
+            or 0
+        )
+
+        tokens_today = (
+            session.query(func.sum(Conversation.tokens_used))
+            .filter(Conversation.timestamp >= today_start)
+            .scalar()
+            or 0
+        )
+
         # 阻断统计
-        blocked_count = session.query(func.count(Conversation.id)).filter(
-            Conversation.action_taken == "blocked"
-        ).scalar() or 0
-        
+        blocked_count = (
+            session.query(func.count(Conversation.id))
+            .filter(Conversation.action_taken == "blocked")
+            .scalar()
+            or 0
+        )
+
         # 总 Token 使用
         total_tokens = session.query(func.sum(Conversation.tokens_used)).scalar() or 0
-        
+
         # 配额使用率计算
         total_quota = session.query(func.sum(Student.current_week_quota)).scalar() or 0
         total_used = session.query(func.sum(Student.used_quota)).scalar() or 0
         quota_usage_rate = (total_used / total_quota * 100) if total_quota > 0 else 0
-        
+
         # 本周配额日志统计
         current_week = get_current_week_number()
-        week_quota_logs = session.query(func.sum(QuotaLog.tokens_used)).filter(
-            QuotaLog.week_number == current_week
-        ).scalar() or 0
-        
+        week_quota_logs = (
+            session.query(func.sum(QuotaLog.tokens_used))
+            .filter(QuotaLog.week_number == current_week)
+            .scalar()
+            or 0
+        )
+
         return {
             "students": student_count,
             "conversations": conversation_count,
@@ -118,31 +136,32 @@ def get_recent_activity(days: int = 7) -> List[Dict[str, Any]]:
     """获取最近的活动数据（用于图表）"""
     with get_db_session() as session:
         start_date = datetime.now() - timedelta(days=days)
-        
+
         # 按日期统计对话数和 Token 使用
-        results = session.query(
-            func.date(Conversation.timestamp).label("date"),
-            func.count(Conversation.id).label("count"),
-            func.sum(Conversation.tokens_used).label("tokens")
-        ).filter(
-            Conversation.timestamp >= start_date
-        ).group_by(
-            func.date(Conversation.timestamp)
-        ).order_by(
-            func.date(Conversation.timestamp)
-        ).all()
-        
+        results = (
+            session.query(
+                func.date(Conversation.timestamp).label("date"),
+                func.count(Conversation.id).label("count"),
+                func.sum(Conversation.tokens_used).label("tokens"),
+            )
+            .filter(Conversation.timestamp >= start_date)
+            .group_by(func.date(Conversation.timestamp))
+            .order_by(func.date(Conversation.timestamp))
+            .all()
+        )
+
         return [
             {
                 "date": str(r.date),
                 "conversations": r.count,
-                "tokens": int(r.tokens or 0)
+                "tokens": int(r.tokens or 0),
             }
             for r in results
         ]
 
 
 # ==================== 学生管理 ====================
+
 
 def get_all_students() -> List[Dict[str, Any]]:
     """获取所有学生列表，返回字典列表避免 Session 问题"""
@@ -171,24 +190,20 @@ def get_student_by_id(student_id: str) -> Optional[Student]:
         return session.query(Student).filter(Student.id == student_id).first()
 
 
-def create_student(
-    name: str,
-    email: str,
-    quota: int = 10000
-) -> tuple[Student, str]:
+def create_student(name: str, email: str, quota: int = 10000) -> tuple[Student, str]:
     """
     创建新学生
-    
+
     Returns:
         (student, api_key) 元组
     """
     import uuid
     from gateway.app.core.security import hash_api_key, generate_api_key
-    
+
     # 生成 API Key
     api_key = generate_api_key()
     api_key_hash = hash_api_key(api_key)
-    
+
     student = Student(
         id=str(uuid.uuid4()),
         name=name,
@@ -196,9 +211,9 @@ def create_student(
         api_key_hash=api_key_hash,
         created_at=datetime.now(),
         current_week_quota=quota,
-        used_quota=0
+        used_quota=0,
     )
-    
+
     with get_db_session() as session:
         session.add(student)
         # 需要刷新以获取生成的 ID
@@ -212,9 +227,9 @@ def create_student(
             api_key_hash=student.api_key_hash,
             created_at=student.created_at,
             current_week_quota=student.current_week_quota,
-            used_quota=student.used_quota
+            used_quota=student.used_quota,
         )
-    
+
     return student_copy, api_key
 
 
@@ -241,15 +256,15 @@ def reset_student_quota(student_id: str) -> bool:
 def regenerate_student_api_key(student_id: str) -> Optional[str]:
     """
     重新生成学生 API Key
-    
+
     Returns:
         新的 API Key 或 None（如果学生不存在）
     """
     from gateway.app.core.security import hash_api_key, generate_api_key
-    
+
     new_key = generate_api_key()
     new_hash = hash_api_key(new_key)
-    
+
     with get_db_session() as session:
         student = session.query(Student).filter(Student.id == student_id).first()
         if not student:
@@ -270,18 +285,19 @@ def delete_student(student_id: str) -> bool:
 
 # ==================== 对话记录 ====================
 
+
 def get_conversations(
     limit: int = 100,
     offset: int = 0,
     student_id: Optional[str] = None,
     action: Optional[str] = None,
     start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """获取对话记录，支持筛选，返回字典列表"""
     with get_db_session() as session:
         query = session.query(Conversation)
-        
+
         # 应用筛选条件
         if student_id:
             query = query.filter(Conversation.student_id == student_id)
@@ -291,9 +307,14 @@ def get_conversations(
             query = query.filter(Conversation.timestamp >= start_date)
         if end_date:
             query = query.filter(Conversation.timestamp <= end_date)
-        
-        conversations = query.order_by(desc(Conversation.timestamp)).offset(offset).limit(limit).all()
-        
+
+        conversations = (
+            query.order_by(desc(Conversation.timestamp))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
         return [
             {
                 "id": c.id,
@@ -305,45 +326,51 @@ def get_conversations(
                 "rule_triggered": c.rule_triggered,
                 "action_taken": c.action_taken,
                 "week_number": c.week_number,
-                "model": getattr(c, 'model', None),
+                "model": getattr(c, "model", None),
             }
             for c in conversations
         ]
 
 
 def get_conversation_count(
-    student_id: Optional[str] = None,
-    action: Optional[str] = None
+    student_id: Optional[str] = None, action: Optional[str] = None
 ) -> int:
     """获取对话记录总数"""
     with get_db_session() as session:
         query = session.query(func.count(Conversation.id))
-        
+
         if student_id:
             query = query.filter(Conversation.student_id == student_id)
         if action:
             query = query.filter(Conversation.action_taken == action)
-        
+
         return query.scalar() or 0
 
 
 def get_conversation_by_id(conversation_id: int) -> Optional[Conversation]:
     """根据 ID 获取单条对话"""
     with get_db_session() as session:
-        return session.query(Conversation).filter(Conversation.id == conversation_id).first()
+        return (
+            session.query(Conversation)
+            .filter(Conversation.id == conversation_id)
+            .first()
+        )
 
 
 def get_conversations_by_student(
-    student_id: str,
-    limit: int = 100,
-    offset: int = 0
+    student_id: str, limit: int = 100, offset: int = 0
 ) -> List[Dict[str, Any]]:
     """获取指定学生的所有对话记录"""
     with get_db_session() as session:
-        conversations = session.query(Conversation).filter(
-            Conversation.student_id == student_id
-        ).order_by(desc(Conversation.timestamp)).offset(offset).limit(limit).all()
-        
+        conversations = (
+            session.query(Conversation)
+            .filter(Conversation.student_id == student_id)
+            .order_by(desc(Conversation.timestamp))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
         return [
             {
                 "id": c.id,
@@ -355,7 +382,7 @@ def get_conversations_by_student(
                 "rule_triggered": c.rule_triggered,
                 "action_taken": c.action_taken,
                 "week_number": c.week_number,
-                "model": getattr(c, 'model', None),
+                "model": getattr(c, "model", None),
             }
             for c in conversations
         ]
@@ -366,24 +393,29 @@ def search_conversations(
     limit: int = 50,
     offset: int = 0,
     student_id: Optional[str] = None,
-    action: Optional[str] = None
+    action: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """搜索对话内容（prompt 或 response）"""
     with get_db_session() as session:
         # 构建基础查询
         db_query = session.query(Conversation).filter(
-            Conversation.prompt_text.ilike(f"%{query}%") |
-            Conversation.response_text.ilike(f"%{query}%")
+            Conversation.prompt_text.ilike(f"%{query}%")
+            | Conversation.response_text.ilike(f"%{query}%")
         )
-        
+
         # 应用额外筛选
         if student_id:
             db_query = db_query.filter(Conversation.student_id == student_id)
         if action:
             db_query = db_query.filter(Conversation.action_taken == action)
-        
-        conversations = db_query.order_by(desc(Conversation.timestamp)).offset(offset).limit(limit).all()
-        
+
+        conversations = (
+            db_query.order_by(desc(Conversation.timestamp))
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
         return [
             {
                 "id": c.id,
@@ -395,13 +427,14 @@ def search_conversations(
                 "rule_triggered": c.rule_triggered,
                 "action_taken": c.action_taken,
                 "week_number": c.week_number,
-                "model": getattr(c, 'model', None),
+                "model": getattr(c, "model", None),
             }
             for c in conversations
         ]
 
 
 # ==================== 规则管理 ====================
+
 
 def get_all_rules() -> List[Dict[str, Any]]:
     """获取所有规则，返回字典列表"""
@@ -431,7 +464,7 @@ def create_rule(
     rule_type: str,
     message: str,
     active_weeks: str = "1-16",
-    enabled: bool = True
+    enabled: bool = True,
 ) -> Dict[str, Any]:
     """创建新规则，返回字典"""
     rule = Rule(
@@ -439,9 +472,9 @@ def create_rule(
         rule_type=rule_type,
         message=message,
         active_weeks=active_weeks,
-        enabled=enabled
+        enabled=enabled,
     )
-    
+
     with get_db_session() as session:
         session.add(rule)
         session.flush()
@@ -463,14 +496,14 @@ def update_rule(
     rule_type: Optional[str] = None,
     message: Optional[str] = None,
     active_weeks: Optional[str] = None,
-    enabled: Optional[bool] = None
+    enabled: Optional[bool] = None,
 ) -> bool:
     """更新规则"""
     with get_db_session() as session:
         rule = session.query(Rule).filter(Rule.id == rule_id).first()
         if not rule:
             return False
-        
+
         if pattern is not None:
             rule.pattern = pattern
         if rule_type is not None:
@@ -481,7 +514,7 @@ def update_rule(
             rule.active_weeks = active_weeks
         if enabled is not None:
             rule.enabled = enabled
-        
+
         return True
 
 
@@ -507,12 +540,15 @@ def toggle_rule_enabled(rule_id: int) -> Optional[bool]:
 
 # ==================== 每周提示词管理 ====================
 
+
 def get_all_weekly_prompts() -> List[Dict[str, Any]]:
     """获取所有每周提示词，返回字典列表"""
     with get_db_session() as session:
-        prompts = session.query(WeeklySystemPrompt).order_by(
-            WeeklySystemPrompt.week_start
-        ).all()
+        prompts = (
+            session.query(WeeklySystemPrompt)
+            .order_by(WeeklySystemPrompt.week_start)
+            .all()
+        )
         return [
             {
                 "id": p.id,
@@ -531,12 +567,16 @@ def get_all_weekly_prompts() -> List[Dict[str, Any]]:
 def get_prompt_by_week(week_number: int) -> Optional[Dict[str, Any]]:
     """根据周次获取提示词（查找包含该周次范围的配置），返回字典"""
     with get_db_session() as session:
-        prompt = session.query(WeeklySystemPrompt).filter(
-            and_(
-                WeeklySystemPrompt.week_start <= week_number,
-                WeeklySystemPrompt.week_end >= week_number
+        prompt = (
+            session.query(WeeklySystemPrompt)
+            .filter(
+                and_(
+                    WeeklySystemPrompt.week_start <= week_number,
+                    WeeklySystemPrompt.week_end >= week_number,
+                )
             )
-        ).first()
+            .first()
+        )
         if prompt:
             return {
                 "id": prompt.id,
@@ -562,18 +602,22 @@ def create_or_update_weekly_prompt(
     week_end: int,
     system_prompt: str,
     description: Optional[str] = None,
-    is_active: bool = True
+    is_active: bool = True,
 ) -> Dict[str, Any]:
     """创建或更新每周提示词，返回字典"""
     with get_db_session() as session:
         # 查找是否存在包含该范围的配置
-        prompt = session.query(WeeklySystemPrompt).filter(
-            and_(
-                WeeklySystemPrompt.week_start == week_start,
-                WeeklySystemPrompt.week_end == week_end
+        prompt = (
+            session.query(WeeklySystemPrompt)
+            .filter(
+                and_(
+                    WeeklySystemPrompt.week_start == week_start,
+                    WeeklySystemPrompt.week_end == week_end,
+                )
             )
-        ).first()
-        
+            .first()
+        )
+
         now = datetime.now()
         if prompt:
             # 更新
@@ -588,10 +632,10 @@ def create_or_update_weekly_prompt(
                 week_end=week_end,
                 system_prompt=system_prompt,
                 description=description,
-                is_active=is_active
+                is_active=is_active,
             )
             session.add(prompt)
-        
+
         session.flush()
         session.refresh(prompt)
         # 返回字典以避免 session 关闭后的访问问题
@@ -610,9 +654,11 @@ def create_or_update_weekly_prompt(
 def delete_weekly_prompt(prompt_id: int) -> bool:
     """删除每周提示词"""
     with get_db_session() as session:
-        prompt = session.query(WeeklySystemPrompt).filter(
-            WeeklySystemPrompt.id == prompt_id
-        ).first()
+        prompt = (
+            session.query(WeeklySystemPrompt)
+            .filter(WeeklySystemPrompt.id == prompt_id)
+            .first()
+        )
         if not prompt:
             return False
         session.delete(prompt)
@@ -622,20 +668,21 @@ def delete_weekly_prompt(prompt_id: int) -> bool:
 
 # ==================== 配额日志 ====================
 
+
 def get_quota_logs(
     student_id: Optional[str] = None,
     week_number: Optional[int] = None,
-    limit: int = 100
+    limit: int = 100,
 ) -> List[QuotaLog]:
     """获取配额日志"""
     with get_db_session() as session:
         query = session.query(QuotaLog)
-        
+
         if student_id:
             query = query.filter(QuotaLog.student_id == student_id)
         if week_number:
             query = query.filter(QuotaLog.week_number == week_number)
-        
+
         return query.order_by(desc(QuotaLog.created_at)).limit(limit).all()
 
 
@@ -645,22 +692,30 @@ def get_student_quota_stats(student_id: str) -> Dict[str, Any]:
         student = session.query(Student).filter(Student.id == student_id).first()
         if not student:
             return {}
-        
+
         current_week = get_current_week_number()
-        
+
         # 本周使用
-        week_usage = session.query(func.sum(QuotaLog.tokens_used)).filter(
-            and_(
-                QuotaLog.student_id == student_id,
-                QuotaLog.week_number == current_week
+        week_usage = (
+            session.query(func.sum(QuotaLog.tokens_used))
+            .filter(
+                and_(
+                    QuotaLog.student_id == student_id,
+                    QuotaLog.week_number == current_week,
+                )
             )
-        ).scalar() or 0
-        
+            .scalar()
+            or 0
+        )
+
         # 历史总计
-        total_usage = session.query(func.sum(QuotaLog.tokens_used)).filter(
-            QuotaLog.student_id == student_id
-        ).scalar() or 0
-        
+        total_usage = (
+            session.query(func.sum(QuotaLog.tokens_used))
+            .filter(QuotaLog.student_id == student_id)
+            .scalar()
+            or 0
+        )
+
         return {
             "student_id": student_id,
             "name": student.name,

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 @dataclass
 class DistributedQuotaState:
     """Quota state for distributed quota management.
-    
+
     Attributes:
         student_id: The student ID
         current_week_quota: Maximum tokens allowed for the week
@@ -14,17 +14,18 @@ class DistributedQuotaState:
         week_number: The academic week number
         source: Where the data came from ('redis', 'db', or 'cache')
     """
+
     student_id: str
     current_week_quota: int
     used_quota: int
     week_number: int = field(default=0)
     source: str = field(default="db")
-    
+
     @property
     def remaining(self) -> int:
         """Calculate remaining quota."""
         return self.current_week_quota - self.used_quota
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
@@ -34,7 +35,7 @@ class DistributedQuotaState:
             "week_number": self.week_number,
             "source": self.source,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "DistributedQuotaState":
         """Create from dictionary."""
