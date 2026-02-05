@@ -76,14 +76,11 @@ TEST_PROMPTS = [
 async def seed_prompts():
     """注入测试提示词."""
     try:
-        from gateway.app.db.base import init_db
-        from gateway.app.db.async_session import AsyncSessionLocal
+        from gateway.app.db.async_session import get_async_session
         from gateway.app.db.models import WeeklySystemPrompt
         from sqlalchemy import select
         
-        await init_db()
-        
-        async with AsyncSessionLocal() as session:
+        async with get_async_session() as session:
             for prompt_data in TEST_PROMPTS:
                 # 检查是否已存在（通过description识别测试数据）
                 result = await session.execute(
@@ -121,11 +118,11 @@ async def seed_prompts():
 async def cleanup_prompts():
     """清理测试提示词."""
     try:
-        from gateway.app.db.async_session import AsyncSessionLocal
+        from gateway.app.db.async_session import get_async_session
         from gateway.app.db.models import WeeklySystemPrompt
         from sqlalchemy import delete
         
-        async with AsyncSessionLocal() as session:
+        async with get_async_session() as session:
             for prompt_data in TEST_PROMPTS:
                 result = await session.execute(
                     delete(WeeklySystemPrompt).where(
@@ -146,11 +143,11 @@ async def cleanup_prompts():
 async def list_prompts():
     """列出当前的每周提示词."""
     try:
-        from gateway.app.db.async_session import AsyncSessionLocal
+        from gateway.app.db.async_session import get_async_session
         from gateway.app.db.models import WeeklySystemPrompt
         from sqlalchemy import select
         
-        async with AsyncSessionLocal() as session:
+        async with get_async_session() as session:
             result = await session.execute(select(WeeklySystemPrompt))
             prompts = result.scalars().all()
             
