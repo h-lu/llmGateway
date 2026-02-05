@@ -1,0 +1,59 @@
+name: Setup Branch Protection
+
+on:
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  setup-protection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure Branch Protection for main
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = 'main';
+            
+            try {
+              await github.rest.repos.updateBranchProtection({
+                owner,
+                repo,
+                branch,
+                required_status_checks: {
+                  strict: true,
+                  contexts: ['Backend Tests', 'Backend Lint', 'Frontend Tests', 'Frontend Lint', 'Frontend Build Check']
+                },
+                enforce_admins: true,
+                required_pull_request_reviews: {
+                  required_approving_review_count: 1,
+                  dismiss_stale_reviews: true,
+                  require_code_owner_reviews: false
+                },
+                restrictions: null,
+                allow_force_pushes: false,
+                allow_deletions: false,
+                required_conversation_resolution: true
+              });
+              
+              console.log('✅ Branch protection rules configured successfully!');
+              console.log('');
+              console.log('📋 Applied rules:');
+              console.log('  • Require PR before merging: ✅');
+              console.log('  • Require 1 approval: ✅');
+              console.log('  • Dismiss stale reviews: ✅');
+              console.log('  • Require status checks: ✅');
+              console.log('  • Require branches up to date: ✅');
+              console.log('  • Require conversation resolution: ✅');
+              console.log('  • Include administrators: ✅');
+              console.log('');
+              console.log('⚠️  Note: If this is a private repository, you may need GitHub Pro.');
+              
+            } catch (error) {
+              console.error('❌ Error configuring branch protection:', error.message);
+              console.log('');
+              console.log('💡 For private repositories, you need to manually configure:');
+              console.log('   https://github.com/' + owner + '/' + repo + '/settings/branches');
+              core.setFailed(error.message);
+            }
