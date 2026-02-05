@@ -47,3 +47,9 @@ ENV/
 .coverage
 htmlcov/
 .tox/
+
+# Vite cache
+web/.vite/
+
+# Docs plans (local only)
+docs/plans/
