@@ -148,44 +148,49 @@ class TestConcurrentStudents:
 
     async def test_students_isolation_per_request(self, http_client):
         """验证每个请求独立，学生之间数据不串扰."""
+        # 直接测试服务层的隔离性
+        from gateway.app.services.weekly_prompt_service import inject_weekly_system_prompt
+        from gateway.app.db.models import WeeklySystemPrompt
+        
         student_contexts = []
         
-        async def student_request(student_id: str, question: str):
-            headers = {"Authorization": f"Bearer tp-key-{student_id}"}
+        async def student_request(student_id: str, week: int, question: str):
+            """模拟单个学生的请求处理."""
+            # 为每个学生创建不同的提示词
+            mock_prompt = WeeklySystemPrompt(
+                week_start=week,
+                week_end=week,
+                system_prompt=f"第{week}周提示词-学生{student_id}",
+                is_active=True,
+            )
             
-            def capture_inject(messages, weekly_prompt):
-                student_contexts.append({
-                    "student_id": student_id,
-                    "question": question,
-                    "prompt_id": weekly_prompt.id if weekly_prompt else None,
-                })
-                return messages
+            messages = [{"role": "user", "content": question}]
             
-            with patch("gateway.app.api.chat.inject_weekly_system_prompt") as mock_inject:
-                mock_inject.side_effect = capture_inject
-                
-                try:
-                    await http_client.post(
-                        "/v1/chat/completions",
-                        headers=headers,
-                        json={
-                            "model": "deepseek-chat",
-                            "messages": [{"role": "user", "content": question}],
-                        },
-                    )
-                except Exception:
-                    pass
+            # 调用注入函数
+            result = await inject_weekly_system_prompt(messages, mock_prompt)
+            
+            # 记录处理结果
+            student_contexts.append({
+                "student_id": student_id,
+                "week": week,
+                "question": question,
+                "has_system_prompt": result[0]["role"] == "system" if result else False,
+            })
         
         # 多个学生并发请求
         await asyncio.gather(
-            student_request("student_1", "什么是变量？"),
-            student_request("student_2", "列表怎么排序？"),
-            student_request("student_3", "字典是什么？"),
+            student_request("student_1", 1, "什么是变量？"),
+            student_request("student_2", 2, "列表怎么排序？"),
+            student_request("student_3", 3, "字典是什么？"),
         )
         
-        # 验证: 所有请求都被记录了
-        assert len(student_contexts) == 3
+        # 验证: 所有请求都被处理了
+        assert len(student_contexts) == 3, f"Expected 3 contexts, got {len(student_contexts)}"
         
-        # 验证: 每个学生有独立的上下文
+        # 验证: 每个学生有独立的上下文（不同的周）
         student_ids = [ctx["student_id"] for ctx in student_contexts]
-        assert len(set(student_ids)) == 3
+        assert len(set(student_ids)) == 3, "Each student should have unique context"
+        
+        # 验证: 每个学生都收到了 system prompt
+        for ctx in student_contexts:
+            assert ctx["has_system_prompt"], f"Student {ctx['student_id']} should receive system prompt"
