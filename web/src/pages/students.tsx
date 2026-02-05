@@ -168,11 +168,13 @@ export function StudentsPage() {
                         <DialogTrigger asChild>
                           <Button 
                             variant="ghost" 
-                            size="icon"
+                            size="sm"
                             onClick={() => setSelectedStudent(student)}
                             title="View Conversations"
+                            className="flex items-center gap-1"
                           >
                             <MessageSquare className="h-4 w-4 text-blue-500" />
+                            <span className="text-xs">View</span>
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -197,8 +199,10 @@ export function StudentsPage() {
                               {conversationsLoading ? (
                                 <div className="p-8 text-center">Loading conversations...</div>
                               ) : studentConversations?.items.length === 0 ? (
-                                <div className="p-8 text-center text-gray-500">
-                                  No conversations found for this student
+                                <div className="p-8 text-center">
+                                  <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                                  <p className="text-gray-500">No conversations found for {student.name}</p>
+                                  <p className="text-sm text-gray-400 mt-2">This student hasn't started any conversations yet.</p>
                                 </div>
                               ) : (
                                 <div className="space-y-4">
