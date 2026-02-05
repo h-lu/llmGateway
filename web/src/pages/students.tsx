@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { studentsApi } from '@/lib/api';
+import { studentsApi, conversationsApi } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,18 +8,26 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Key, RotateCcw, Trash2 } from 'lucide-react';
-import type { Student } from '@/types';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Key, RotateCcw, Trash2, MessageSquare, User, Search } from 'lucide-react';
+import type { Student, Conversation } from '@/types';
 
 export function StudentsPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [newStudent, setNewStudent] = useState({ name: '', email: '', quota: 10000 });
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   const { data: students, isLoading } = useQuery({
     queryKey: ['students'],
     queryFn: studentsApi.list,
+  });
+
+  const { data: studentConversations, isLoading: conversationsLoading } = useQuery({
+    queryKey: ['student-conversations', selectedStudent?.id],
+    queryFn: () => selectedStudent ? conversationsApi.getByStudent(selectedStudent.id) : Promise.resolve({ items: [], total: 0 }),
+    enabled: !!selectedStudent,
   });
 
   const createMutation = useMutation({
@@ -55,10 +63,18 @@ export function StudentsPage() {
     return <Badge className="bg-green-500">Normal</Badge>;
   };
 
-  if (isLoading) return <div>Loading...</div>;
+  const getActionBadge = (action: string) => {
+    switch (action) {
+      case 'blocked': return <Badge variant="destructive">Blocked</Badge>;
+      case 'guided': return <Badge variant="secondary">Guided</Badge>;
+      default: return <Badge variant="outline">Passed</Badge>;
+    }
+  };
+
+  if (isLoading) return <div className="p-8">Loading...</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-8">
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold">Students</h2>
         <Dialog>
@@ -114,12 +130,15 @@ export function StudentsPage() {
         </Card>
       )}
 
-      <Input
-        placeholder="Search students..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        className="max-w-sm"
-      />
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <Input
+          placeholder="Search students by name or email..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="pl-10 max-w-md"
+        />
+      </div>
 
       <Card>
         <CardContent className="p-0">
@@ -144,24 +163,127 @@ export function StudentsPage() {
                   <TableCell>{getUsageBadge(student.used_quota, student.current_week_quota)}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
+                      {/* View Conversations */}
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => setSelectedStudent(student)}
+                            title="View Conversations"
+                          >
+                            <MessageSquare className="h-4 w-4 text-blue-500" />
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle className="flex items-center gap-2">
+                              <User className="h-5 w-5" />
+                              {student.name}'s Conversations
+                            </DialogTitle>
+                          </DialogHeader>
+                          
+                          <Tabs defaultValue="conversations" className="mt-4">
+                            <TabsList>
+                              <TabsTrigger value="conversations">
+                                <MessageSquare className="mr-2 h-4 w-4" /> Conversations
+                              </TabsTrigger>
+                              <TabsTrigger value="info">
+                                <User className="mr-2 h-4 w-4" /> Student Info
+                              </TabsTrigger>
+                            </TabsList>
+                            
+                            <TabsContent value="conversations" className="mt-4">
+                              {conversationsLoading ? (
+                                <div className="p-8 text-center">Loading conversations...</div>
+                              ) : studentConversations?.items.length === 0 ? (
+                                <div className="p-8 text-center text-gray-500">
+                                  No conversations found for this student
+                                </div>
+                              ) : (
+                                <div className="space-y-4">
+                                  <p className="text-sm text-gray-500">
+                                    Total: {studentConversations?.total} conversations
+                                  </p>
+                                  <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                                    {studentConversations?.items.map((conv: Conversation) => (
+                                      <Card key={conv.id} className="border-l-4 border-l-blue-500">
+                                        <CardContent className="p-4">
+                                          <div className="flex justify-between items-start mb-2">
+                                            <span className="text-sm text-gray-500">
+                                              {conv.timestamp ? new Date(conv.timestamp).toLocaleString() : 'N/A'}
+                                            </span>
+                                            {getActionBadge(conv.action_taken || 'passed')}
+                                          </div>
+                                          <div className="space-y-2">
+                                            <div>
+                                              <p className="text-xs font-semibold text-blue-600">Prompt:</p>
+                                              <p className="text-sm bg-blue-50 p-2 rounded">{conv.prompt_text}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-xs font-semibold text-green-600">Response:</p>
+                                              <p className="text-sm bg-green-50 p-2 rounded">{conv.response_text}</p>
+                                            </div>
+                                          </div>
+                                          <div className="mt-2 text-xs text-gray-400">
+                                            Tokens: {conv.tokens_used} | Week: {conv.week_number}
+                                          </div>
+                                        </CardContent>
+                                      </Card>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </TabsContent>
+                            
+                            <TabsContent value="info" className="mt-4">
+                              <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <Label className="text-gray-500">Student ID</Label>
+                                    <p className="font-mono text-sm">{student.id}</p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-gray-500">Email</Label>
+                                    <p>{student.email}</p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-gray-500">Weekly Quota</Label>
+                                    <p>{student.current_week_quota.toLocaleString()}</p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-gray-500">Used Quota</Label>
+                                    <p>{student.used_quota.toLocaleString()}</p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-gray-500">Created</Label>
+                                    <p>{student.created_at ? new Date(student.created_at).toLocaleDateString() : 'N/A'}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </TabsContent>
+                          </Tabs>
+                        </DialogContent>
+                      </Dialog>
+
+                      <Button 
+                        variant="ghost" 
                         size="icon"
                         onClick={() => regenerateMutation.mutate(student.id)}
                         title="Regenerate API Key"
                       >
                         <Key className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
+                      <Button 
+                        variant="ghost" 
                         size="icon"
                         onClick={() => studentsApi.resetQuota(student.id)}
                         title="Reset Quota"
                       >
                         <RotateCcw className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
+                      <Button 
+                        variant="ghost" 
                         size="icon"
                         onClick={() => deleteMutation.mutate(student.id)}
                         title="Delete"

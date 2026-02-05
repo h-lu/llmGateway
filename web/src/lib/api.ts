@@ -56,8 +56,14 @@ export const studentsApi = {
 
 // Conversations API
 export const conversationsApi = {
-  list: (params?: { limit?: number; offset?: number; student_id?: string; action?: string }) =>
+  list: (params?: { limit?: number; offset?: number; student_id?: string; action?: string; search?: string }) =>
     api.get<{ items: Conversation[]; total: number }>('/conversations', { params }).then(r => r.data),
+  
+  getByStudent: (studentId: string, params?: { limit?: number; offset?: number }) =>
+    api.get<{ items: Conversation[]; total: number }>(`/conversations/student/${studentId}`, { params }).then(r => r.data),
+  
+  search: (query: string, params?: { limit?: number; offset?: number }) =>
+    api.get<{ items: Conversation[]; total: number; query: string }>('/conversations/search', { params: { q: query, ...params } }).then(r => r.data),
 };
 
 // Rules API

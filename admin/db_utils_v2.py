@@ -143,10 +143,25 @@ def get_recent_activity(days: int = 7) -> List[Dict[str, Any]]:
 
 # ==================== 学生管理 ====================
 
-def get_all_students() -> List[Student]:
-    """获取所有学生列表"""
+def get_all_students() -> List[Dict[str, Any]]:
+    """获取所有学生列表，返回字典列表避免 Session 问题"""
     with get_db_session() as session:
-        return session.query(Student).order_by(Student.created_at.desc()).all()
+        students = session.query(Student).order_by(Student.created_at.desc()).all()
+        # 在 Session 内转换为字典
+        return [
+            {
+                "id": s.id,
+                "name": s.name,
+                "email": s.email,
+                "api_key_hash": s.api_key_hash,
+                "created_at": s.created_at,
+                "current_week_quota": s.current_week_quota,
+                "used_quota": s.used_quota,
+                "provider_api_key_encrypted": s.provider_api_key_encrypted,
+                "provider_type": s.provider_type,
+            }
+            for s in students
+        ]
 
 
 def get_student_by_id(student_id: str) -> Optional[Student]:
@@ -261,8 +276,8 @@ def get_conversations(
     action: Optional[str] = None,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None
-) -> List[Conversation]:
-    """获取对话记录，支持筛选"""
+) -> List[Dict[str, Any]]:
+    """获取对话记录，支持筛选，返回字典列表"""
     with get_db_session() as session:
         query = session.query(Conversation)
         
@@ -276,7 +291,23 @@ def get_conversations(
         if end_date:
             query = query.filter(Conversation.timestamp <= end_date)
         
-        return query.order_by(desc(Conversation.timestamp)).offset(offset).limit(limit).all()
+        conversations = query.order_by(desc(Conversation.timestamp)).offset(offset).limit(limit).all()
+        
+        return [
+            {
+                "id": c.id,
+                "student_id": c.student_id,
+                "timestamp": c.timestamp,
+                "prompt_text": c.prompt_text,
+                "response_text": c.response_text,
+                "tokens_used": c.tokens_used,
+                "rule_triggered": c.rule_triggered,
+                "action_taken": c.action_taken,
+                "week_number": c.week_number,
+                "model": getattr(c, 'model', None),
+            }
+            for c in conversations
+        ]
 
 
 def get_conversation_count(
@@ -301,12 +332,91 @@ def get_conversation_by_id(conversation_id: int) -> Optional[Conversation]:
         return session.query(Conversation).filter(Conversation.id == conversation_id).first()
 
 
+def get_conversations_by_student(
+    student_id: str,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]:
+    """获取指定学生的所有对话记录"""
+    with get_db_session() as session:
+        conversations = session.query(Conversation).filter(
+            Conversation.student_id == student_id
+        ).order_by(desc(Conversation.timestamp)).offset(offset).limit(limit).all()
+        
+        return [
+            {
+                "id": c.id,
+                "student_id": c.student_id,
+                "timestamp": c.timestamp,
+                "prompt_text": c.prompt_text,
+                "response_text": c.response_text,
+                "tokens_used": c.tokens_used,
+                "rule_triggered": c.rule_triggered,
+                "action_taken": c.action_taken,
+                "week_number": c.week_number,
+                "model": getattr(c, 'model', None),
+            }
+            for c in conversations
+        ]
+
+
+def search_conversations(
+    query: str,
+    limit: int = 50,
+    offset: int = 0,
+    student_id: Optional[str] = None,
+    action: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """搜索对话内容（prompt 或 response）"""
+    with get_db_session() as session:
+        # 构建基础查询
+        db_query = session.query(Conversation).filter(
+            Conversation.prompt_text.ilike(f"%{query}%") |
+            Conversation.response_text.ilike(f"%{query}%")
+        )
+        
+        # 应用额外筛选
+        if student_id:
+            db_query = db_query.filter(Conversation.student_id == student_id)
+        if action:
+            db_query = db_query.filter(Conversation.action_taken == action)
+        
+        conversations = db_query.order_by(desc(Conversation.timestamp)).offset(offset).limit(limit).all()
+        
+        return [
+            {
+                "id": c.id,
+                "student_id": c.student_id,
+                "timestamp": c.timestamp,
+                "prompt_text": c.prompt_text,
+                "response_text": c.response_text,
+                "tokens_used": c.tokens_used,
+                "rule_triggered": c.rule_triggered,
+                "action_taken": c.action_taken,
+                "week_number": c.week_number,
+                "model": getattr(c, 'model', None),
+            }
+            for c in conversations
+        ]
+
+
 # ==================== 规则管理 ====================
 
-def get_all_rules() -> List[Rule]:
-    """获取所有规则"""
+def get_all_rules() -> List[Dict[str, Any]]:
+    """获取所有规则，返回字典列表"""
     with get_db_session() as session:
-        return session.query(Rule).order_by(Rule.id.desc()).all()
+        rules = session.query(Rule).order_by(Rule.id.desc()).all()
+        return [
+            {
+                "id": r.id,
+                "pattern": r.pattern,
+                "rule_type": r.rule_type,
+                "message": r.message,
+                "active_weeks": r.active_weeks,
+                "enabled": r.enabled,
+            }
+            for r in rules
+        ]
 
 
 def get_rule_by_id(rule_id: int) -> Optional[Rule]:
@@ -321,8 +431,8 @@ def create_rule(
     message: str,
     active_weeks: str = "1-16",
     enabled: bool = True
-) -> Rule:
-    """创建新规则"""
+) -> Dict[str, Any]:
+    """创建新规则，返回字典"""
     rule = Rule(
         pattern=pattern,
         rule_type=rule_type,
@@ -335,15 +445,15 @@ def create_rule(
         session.add(rule)
         session.flush()
         session.refresh(rule)
-        # 复制对象以避免 session 关闭后的访问问题
-        return Rule(
-            id=rule.id,
-            pattern=rule.pattern,
-            rule_type=rule.rule_type,
-            message=rule.message,
-            active_weeks=rule.active_weeks,
-            enabled=rule.enabled
-        )
+        # 返回字典以避免 session 关闭后的访问问题
+        return {
+            "id": rule.id,
+            "pattern": rule.pattern,
+            "rule_type": rule.rule_type,
+            "message": rule.message,
+            "active_weeks": rule.active_weeks,
+            "enabled": rule.enabled,
+        }
 
 
 def update_rule(
@@ -396,54 +506,86 @@ def toggle_rule_enabled(rule_id: int) -> Optional[bool]:
 
 # ==================== 每周提示词管理 ====================
 
-def get_all_weekly_prompts() -> List[WeeklySystemPrompt]:
-    """获取所有每周提示词"""
+def get_all_weekly_prompts() -> List[Dict[str, Any]]:
+    """获取所有每周提示词，返回字典列表"""
     with get_db_session() as session:
-        return session.query(WeeklySystemPrompt).order_by(
-            WeeklySystemPrompt.week_number
+        prompts = session.query(WeeklySystemPrompt).order_by(
+            WeeklySystemPrompt.week_start
         ).all()
+        return [
+            {
+                "id": p.id,
+                "week_start": p.week_start,
+                "week_end": p.week_end,
+                "system_prompt": p.system_prompt,
+                "description": p.description,
+                "is_active": p.is_active,
+                "created_at": p.created_at,
+                "updated_at": p.updated_at,
+            }
+            for p in prompts
+        ]
 
 
-def get_prompt_by_week(week_number: int) -> Optional[WeeklySystemPrompt]:
-    """根据周次获取提示词"""
+def get_prompt_by_week(week_number: int) -> Optional[Dict[str, Any]]:
+    """根据周次获取提示词（查找包含该周次范围的配置），返回字典"""
     with get_db_session() as session:
-        return session.query(WeeklySystemPrompt).filter(
-            WeeklySystemPrompt.week_number == week_number
+        prompt = session.query(WeeklySystemPrompt).filter(
+            and_(
+                WeeklySystemPrompt.week_start <= week_number,
+                WeeklySystemPrompt.week_end >= week_number
+            )
         ).first()
+        if prompt:
+            return {
+                "id": prompt.id,
+                "week_start": prompt.week_start,
+                "week_end": prompt.week_end,
+                "system_prompt": prompt.system_prompt,
+                "description": prompt.description,
+                "is_active": prompt.is_active,
+                "created_at": prompt.created_at,
+                "updated_at": prompt.updated_at,
+            }
+        return None
 
 
-def get_current_week_prompt() -> Optional[WeeklySystemPrompt]:
-    """获取当前周的提示词"""
+def get_current_week_prompt() -> Optional[Dict[str, Any]]:
+    """获取当前周的提示词，返回字典"""
     current_week = get_current_week_number()
     return get_prompt_by_week(current_week)
 
 
 def create_or_update_weekly_prompt(
-    week_number: int,
-    title: str,
-    content: str,
+    week_start: int,
+    week_end: int,
+    system_prompt: str,
     description: Optional[str] = None,
     is_active: bool = True
-) -> WeeklySystemPrompt:
-    """创建或更新每周提示词"""
+) -> Dict[str, Any]:
+    """创建或更新每周提示词，返回字典"""
     with get_db_session() as session:
+        # 查找是否存在包含该范围的配置
         prompt = session.query(WeeklySystemPrompt).filter(
-            WeeklySystemPrompt.week_number == week_number
+            and_(
+                WeeklySystemPrompt.week_start == week_start,
+                WeeklySystemPrompt.week_end == week_end
+            )
         ).first()
         
+        now = datetime.now()
         if prompt:
             # 更新
-            prompt.title = title
-            prompt.content = content
+            prompt.system_prompt = system_prompt
             prompt.description = description
             prompt.is_active = is_active
-            prompt.updated_at = datetime.now()
+            prompt.updated_at = now
         else:
             # 创建
             prompt = WeeklySystemPrompt(
-                week_number=week_number,
-                title=title,
-                content=content,
+                week_start=week_start,
+                week_end=week_end,
+                system_prompt=system_prompt,
                 description=description,
                 is_active=is_active
             )
@@ -451,16 +593,17 @@ def create_or_update_weekly_prompt(
         
         session.flush()
         session.refresh(prompt)
-        return WeeklySystemPrompt(
-            id=prompt.id,
-            week_number=prompt.week_number,
-            title=prompt.title,
-            content=prompt.content,
-            description=prompt.description,
-            is_active=prompt.is_active,
-            created_at=prompt.created_at,
-            updated_at=prompt.updated_at
-        )
+        # 返回字典以避免 session 关闭后的访问问题
+        return {
+            "id": prompt.id,
+            "week_start": prompt.week_start,
+            "week_end": prompt.week_end,
+            "system_prompt": prompt.system_prompt,
+            "description": prompt.description,
+            "is_active": prompt.is_active,
+            "created_at": prompt.created_at,
+            "updated_at": prompt.updated_at,
+        }
 
 
 def delete_weekly_prompt(prompt_id: int) -> bool:
@@ -472,6 +615,7 @@ def delete_weekly_prompt(prompt_id: int) -> bool:
         if not prompt:
             return False
         session.delete(prompt)
+        session.flush()
         return True
 
 
