@@ -4,7 +4,7 @@ from gateway.app.middleware.auth import require_admin
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
 
 # Sub-routers will be included here
-from . import students, conversations, rules, weekly_prompts, dashboard
+from . import students, conversations, rules, weekly_prompts, dashboard  # noqa: E402
 
 router.include_router(students.router, prefix="/students", tags=["admin-students"])
 router.include_router(conversations.router, prefix="/conversations", tags=["admin-conversations"])

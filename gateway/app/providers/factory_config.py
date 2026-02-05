@@ -14,7 +14,7 @@ from gateway.app.core.config import settings
 from gateway.app.core.logging import get_logger
 
 if TYPE_CHECKING:
-    from gateway.app.providers.base import BaseProvider
+    pass
 
 logger = get_logger(__name__)
 

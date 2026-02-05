@@ -25,7 +25,7 @@ async def get_active_prompt_for_week(
     """
     stmt = (
         select(WeeklySystemPrompt)
-        .where(WeeklySystemPrompt.is_active == True)
+        .where(WeeklySystemPrompt.is_active.is_(True))
         .where(WeeklySystemPrompt.week_start <= week_number)
         .where(WeeklySystemPrompt.week_end >= week_number)
         .order_by(
@@ -53,7 +53,7 @@ async def get_all_weekly_prompts(
     """
     stmt = select(WeeklySystemPrompt)
     if active_only:
-        stmt = stmt.where(WeeklySystemPrompt.is_active == True)
+        stmt = stmt.where(WeeklySystemPrompt.is_active.is_(True))
     stmt = stmt.order_by(WeeklySystemPrompt.week_start.asc())
     
     result = await session.execute(stmt)

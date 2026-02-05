@@ -1,7 +1,6 @@
 """Student CRUD operations."""
 from __future__ import annotations
 
-from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession

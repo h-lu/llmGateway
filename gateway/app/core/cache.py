@@ -4,7 +4,7 @@ Provides a pluggable cache backend system with in-memory and Redis implementatio
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 import asyncio
 import time

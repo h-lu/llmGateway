@@ -80,7 +80,7 @@ def evaluate_prompt(
     import concurrent.futures
     try:
         # Check if we're already in an event loop
-        loop = asyncio.get_running_loop()
+        _ = asyncio.get_running_loop()
         # If we get here, we're in an async context - this is problematic
         # The caller should use evaluate_prompt_async instead
         logger.warning("evaluate_prompt called from async context, consider using evaluate_prompt_async")

@@ -10,10 +10,9 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi import APIRouter, Depends
+from fastapi.responses import PlainTextResponse
 
-from gateway.app.core.config import settings
 from gateway.app.core.logging import get_logger
 from gateway.app.middleware.auth import require_admin
 from gateway.app.services.request_router import get_request_router

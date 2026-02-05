@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from gateway.app.providers.base import BaseProvider
+    from gateway.app.providers.factory import ProviderFactory
     from gateway.app.providers.health import ProviderHealthChecker
 
 

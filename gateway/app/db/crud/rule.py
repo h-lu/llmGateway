@@ -22,7 +22,7 @@ async def get_all_rules(
     """
     query = select(Rule)
     if enabled_only:
-        query = query.where(Rule.enabled == True)
+        query = query.where(Rule.enabled.is_(True))
     result = await session.execute(query)
     return list(result.scalars().all())
 

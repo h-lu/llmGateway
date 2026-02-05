@@ -6,7 +6,6 @@ exponential backoff for transient failures in HTTP requests.
 
 import asyncio
 import functools
-import logging
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple, Type, TypeVar
 

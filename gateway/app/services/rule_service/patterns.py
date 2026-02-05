@@ -1,7 +1,6 @@
 """Rule patterns and utilities."""
 from __future__ import annotations
 
-import re
 from gateway.app.core.logging import get_logger
 
 logger = get_logger(__name__)

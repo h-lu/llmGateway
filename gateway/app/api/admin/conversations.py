@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query
 from typing import Optional
 from datetime import datetime
 from admin.db_utils_v2 import (

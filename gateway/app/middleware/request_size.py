@@ -103,7 +103,6 @@ class RequestSizeLimitMiddleware:
             return
         
         # Check Content-Length header first (fast path for most requests)
-        headers = dict(scope.get("headers", []))
         content_length = None
         for name, value in scope.get("headers", []):
             if name.lower() == b"content-length":

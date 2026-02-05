@@ -1,7 +1,7 @@
 """Chat API endpoints for the gateway."""
 
 import json
-from typing import Any, Dict, List, Literal, Optional
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, Field, field_validator
@@ -11,13 +11,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from gateway.app.core.config import settings
 from gateway.app.core.http_client import get_http_client
 from gateway.app.core.logging import get_logger
-from gateway.app.core.tokenizer import TokenCounter, count_message_tokens
 from gateway.app.core.utils import get_current_week_number
 from gateway.app.db.models import Student
-from gateway.app.exceptions import QuotaExceededError
 from gateway.app.middleware.auth import require_api_key
 from gateway.app.middleware.request_id import get_request_id, get_traceparent
-from gateway.app.providers.base import BaseProvider
 from gateway.app.providers.factory import get_load_balancer
 from gateway.app.providers.loadbalancer import LoadBalancer
 from gateway.app.services.rule_service import evaluate_prompt_async
@@ -34,7 +31,7 @@ from gateway.app.services.request_router import get_request_router
 from gateway.app.services.quota_cache import get_quota_cache_service
 
 # Import extracted modules
-from gateway.app.api.chat_quota import check_student_quota, check_and_reserve_quota
+from gateway.app.api.chat_quota import check_and_reserve_quota
 from gateway.app.api.chat_responses import (
     create_blocked_response,
     handle_streaming_response,
@@ -243,7 +240,7 @@ async def chat_completions(
         
         # Check and reserve quota within the same session
         # Session will be committed and closed before streaming starts
-        remaining = await check_and_reserve_quota(
+        await check_and_reserve_quota(
             student, week_number, estimated_tokens=max_tokens, session=db_session
         )
         
@@ -290,7 +287,7 @@ async def chat_completions(
                     provider_name = "unknown"
                 
                 logger.info(
-                    f"Provider selected",
+                    "Provider selected",
                     extra={
                         "request_id": request_id,
                         "provider": provider_name,

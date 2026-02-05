@@ -6,8 +6,6 @@ from typing import Any, AsyncGenerator
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.middleware.sessions import SessionMiddleware
-from starlette.requests import Request as StarletteRequest
 
 from gateway.app.api.chat import router as chat_router
 from gateway.app.api.metrics import router as metrics_router, MetricsMiddleware

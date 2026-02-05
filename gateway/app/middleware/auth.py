@@ -5,7 +5,7 @@ import time
 from collections import OrderedDict
 from typing import Optional, Tuple
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import HTTPException, Request
 
 from gateway.app.db.dependencies import SessionDep
 from gateway.app.db.crud import lookup_student_by_hash

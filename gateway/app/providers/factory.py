@@ -299,7 +299,6 @@ def get_load_balancer(
     if _load_balancer is None:
         # Import here to avoid circular imports at module level
         from gateway.app.providers.loadbalancer import LoadBalancer
-        from gateway.app.providers.health import ProviderHealthChecker
         
         # Use provided client or attempt to get from lifespan context
         client = http_client

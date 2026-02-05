@@ -7,7 +7,6 @@ import httpx
 from fastapi import BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from gateway.app.core.config import settings
 from gateway.app.core.logging import get_logger
 from gateway.app.core.tokenizer import TokenCounter, count_message_tokens
 from gateway.app.db.models import Student

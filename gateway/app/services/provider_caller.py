@@ -1,7 +1,7 @@
 """LLM Provider caller with failover support."""
 
 import logging
-from typing import Any, AsyncGenerator
+from typing import AsyncGenerator
 
 import httpx
 from openai import AsyncOpenAI, APITimeoutError

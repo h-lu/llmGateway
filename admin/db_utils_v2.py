@@ -13,15 +13,16 @@ from sqlalchemy.exc import SQLAlchemyError
 # 导入项目配置和模型
 import sys
 from pathlib import Path
+
 project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from gateway.app.core.config import settings
-from gateway.app.db.models import (
+from gateway.app.core.config import settings  # noqa: E402
+from gateway.app.db.models import (  # noqa: E402
     Student, Conversation, Rule, WeeklySystemPrompt, QuotaLog
 )
-from gateway.app.core.utils import get_current_week_number
+from gateway.app.core.utils import get_current_week_number  # noqa: E402
 
 
 # 创建同步数据库引擎

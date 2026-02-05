@@ -62,6 +62,7 @@ __all__ = [
     "init_async_db",
     # FastAPI Dependencies
     "SessionDep",
+    "SessionDepAlias",
     # CRUD - Student
     "check_and_consume_quota",
     "get_student_by_id",

@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from gateway.app.core.config import settings
-from gateway.app.core.async_logging import setup_async_logging, AsyncHandlerWrapper
+from gateway.app.core.async_logging import setup_async_logging
 
 
 class JSONFormatter(logging.Formatter):
