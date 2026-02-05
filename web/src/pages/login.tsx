@@ -20,7 +20,7 @@ export function LoginPage() {
 
     try {
       // Verify token by making a test request
-      const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const API_BASE = import.meta.env.VITE_API_URL || '';
       await axios.get(`${API_BASE}/admin/dashboard/stats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
