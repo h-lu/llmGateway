@@ -262,7 +262,7 @@ async def chat_completions(
 
     # Note: Guide action is deprecated in favor of weekly system prompts
     # Keep for backward compatibility but log a warning
-    if result.action == "guided":
+    if result and result.action == "guided":
         logger.warning(
             "Guide action is deprecated, use weekly system prompts instead",
             extra={
