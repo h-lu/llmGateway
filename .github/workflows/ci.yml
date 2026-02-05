@@ -20,21 +20,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
-          version: 'latest'
+          enable-cache: true
 
-      - name: Create virtual environment
-        run: uv venv
+      - name: Install Python
+        run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv pip install -e ".[dev]"
+        run: uv sync --locked --dev
 
       - name: Run tests
         run: uv run pytest -v --tb=short
@@ -50,21 +45,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
-          version: 'latest'
+          enable-cache: true
 
-      - name: Create virtual environment
-        run: uv venv
+      - name: Install Python
+        run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv pip install -e ".[dev]" ruff mypy
+        run: uv sync --locked --dev
 
       - name: Run ruff check
         run: uv run ruff check gateway/ admin/
@@ -98,7 +88,7 @@ jobs:
 
       - name: Run tests
         working-directory: ./web
-        run: npm run test -- --run
+        run: npm run test
 
   # ==================== 前端代码检查 ====================
   frontend-lint:
