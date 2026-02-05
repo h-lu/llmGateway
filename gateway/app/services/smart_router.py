@@ -5,10 +5,10 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional
 
 from gateway.app.core.config import settings
 from gateway.app.db.models import Student
+from gateway.app.exceptions import QuotaExceededWithGuidanceError
 
 logger = logging.getLogger(__name__)
 
@@ -31,53 +31,8 @@ class RoutingDecision:
     base_url: str
     model: str
     timeout: float
-    fallback_models: Optional[list[str]] = None
+    fallback_models: list[str] | None = None
     cost_per_1m_tokens: tuple[float, float] = (0.0, 0.0)  # (input, output)
-
-
-class QuotaExceededWithGuidanceError(Exception):
-    """配额不足异常，包含配置指引"""
-
-    def __init__(
-        self,
-        student_id: str,
-        remaining: int,
-        reset_week: int,
-        message: str,
-    ):
-        self.student_id = student_id
-        self.remaining = remaining
-        self.reset_week = reset_week
-        self.message = message
-        super().__init__(message)
-
-    def to_response(self) -> dict:
-        """转换为 API 响应"""
-        return {
-            "error": "quota_exceeded",
-            "error_code": "QUOTA_EXCEEDED_CONFIGURE_KEY",
-            "message": self.message,
-            "remaining_tokens": self.remaining,
-            "reset_week": self.reset_week,
-            "actions": [
-                {
-                    "type": "configure_key",
-                    "title": "配置自己的 API Key",
-                    "description": "使用自己的 DeepSeek Key 继续学习",
-                    "url": "/settings/api-key",
-                },
-                {
-                    "type": "wait",
-                    "title": "等待下周",
-                    "description": f"配额将在第 {self.reset_week} 周重置",
-                },
-            ],
-            "recommended_provider": {
-                "name": "DeepSeek",
-                "website": "https://platform.deepseek.com",
-                "pricing": "$0.55/$2.19 per 1M tokens",
-            },
-        }
 
 
 def get_current_week_number() -> int:

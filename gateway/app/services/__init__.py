@@ -6,7 +6,6 @@ This package provides:
 - Async conversation logging
 """
 
-from gateway.app.services.quota import QuotaState, apply_usage
 from gateway.app.services.quota_cache import (
     QuotaCacheService,
     QuotaCacheState,
@@ -49,9 +48,6 @@ from gateway.app.services.weekly_prompt_service import (
 )
 
 __all__ = [
-    # Quota (basic)
-    "QuotaState",
-    "apply_usage",
     # Quota Cache
     "QuotaCacheService",
     "QuotaCacheState",

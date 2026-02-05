@@ -5,7 +5,7 @@ optimized for KV cache efficiency by maintaining consistent prompt
 prefixes within the same week.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gateway.app.db.models import WeeklySystemPrompt
@@ -25,13 +25,13 @@ class WeeklyPromptService:
     """
 
     def __init__(self):
-        self._cached_week: Optional[int] = None
-        self._cached_prompt: Optional[WeeklySystemPrompt] = None
+        self._cached_week: int | None = None
+        self._cached_prompt: WeeklySystemPrompt | None = None
         self._cache_valid: bool = False
 
     async def get_prompt_for_week(
         self, session: AsyncSession, week_number: int
-    ) -> Optional[WeeklySystemPrompt]:
+    ) -> WeeklySystemPrompt | None:
         """Get the system prompt for a specific week.
 
         Uses in-memory caching to avoid repeated DB queries
@@ -70,7 +70,7 @@ class WeeklyPromptService:
 
 
 # Global instance
-_weekly_prompt_service: Optional[WeeklyPromptService] = None
+_weekly_prompt_service: WeeklyPromptService | None = None
 
 
 def get_weekly_prompt_service() -> WeeklyPromptService:
@@ -92,7 +92,7 @@ def reset_weekly_prompt_service() -> None:
 
 
 async def inject_weekly_system_prompt(
-    messages: List[Dict[str, Any]], weekly_prompt: Optional[WeeklySystemPrompt]
+    messages: List[Dict[str, Any]], weekly_prompt: WeeklySystemPrompt | None
 ) -> List[Dict[str, Any]]:
     """Inject weekly system prompt into messages.
 

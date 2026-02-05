@@ -7,7 +7,7 @@ Uses 30-second TTL and optimistic locking for updates.
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from gateway.app.core.cache import CacheBackend, get_cache
 from gateway.app.core.utils import get_current_week_number
@@ -74,7 +74,7 @@ class QuotaCacheService:
     CACHE_TTL_SECONDS = 30
     CACHE_KEY_PREFIX = "quota"
 
-    def __init__(self, cache: Optional[CacheBackend] = None) -> None:
+    def __init__(self, cache: CacheBackend | None = None) -> None:
         """Initialize the quota cache service.
 
         Args:
@@ -91,7 +91,7 @@ class QuotaCacheService:
             self._cache = get_cache()
         return self._cache
 
-    def _make_key(self, student_id: str, week_number: Optional[int] = None) -> str:
+    def _make_key(self, student_id: str, week_number: int | None = None) -> str:
         """Create cache key for a student.
 
         Args:
@@ -106,8 +106,8 @@ class QuotaCacheService:
         return f"{self.CACHE_KEY_PREFIX}:{student_id}:{week_number}"
 
     async def get_quota_state(
-        self, student_id: str, week_number: Optional[int] = None
-    ) -> Optional[QuotaCacheState]:
+        self, student_id: str, week_number: int | None = None
+    ) -> QuotaCacheState | None:
         """Get quota state from cache.
 
         Args:
@@ -152,7 +152,7 @@ class QuotaCacheService:
         await cache.set(key, data, ttl=self.CACHE_TTL_SECONDS)
 
     async def delete_quota_state(
-        self, student_id: str, week_number: Optional[int] = None
+        self, student_id: str, week_number: int | None = None
     ) -> None:
         """Remove quota state from cache.
 
@@ -168,8 +168,8 @@ class QuotaCacheService:
         self,
         student_id: str,
         tokens_to_release: int,
-        week_number: Optional[int] = None,
-        session: Optional[Any] = None,
+        week_number: int | None = None,
+        session: Any | None = None,
     ) -> bool:
         """Release previously reserved quota.
 
@@ -223,8 +223,8 @@ class QuotaCacheService:
         student_id: str,
         current_week_quota: int,
         tokens_needed: int,
-        week_number: Optional[int] = None,
-        session: Optional[Any] = None,
+        week_number: int | None = None,
+        session: Any | None = None,
     ) -> tuple[bool, int, int]:
         """Check and reserve quota using cache for fast checks, DB for persistence.
 
@@ -315,10 +315,10 @@ class QuotaCacheService:
 
 
 # Global service instance
-_quota_cache_service: Optional[QuotaCacheService] = None
+_quota_cache_service: QuotaCacheService | None = None
 
 
-def get_quota_cache_service(cache: Optional[CacheBackend] = None) -> QuotaCacheService:
+def get_quota_cache_service(cache: CacheBackend | None = None) -> QuotaCacheService:
     """Get the global quota cache service instance.
 
     Args:

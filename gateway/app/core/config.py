@@ -1,6 +1,5 @@
 import os
 from datetime import date
-from typing import Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -90,7 +89,7 @@ class Settings(BaseSettings):
     httpx_max_keepalive_connections: int = 20
 
     # Academic calendar settings
-    semester_start_date: Optional[date] = None  # e.g., "2026-02-17" for Spring 2026
+    semester_start_date: date | None = None  # e.g., "2026-02-17" for Spring 2026
     semester_weeks: int = 16  # Total weeks in a semester
 
     # Provider settings
@@ -99,7 +98,7 @@ class Settings(BaseSettings):
     # OpenAI settings (optional, for multi-provider support)
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
-    openai_organization: Optional[str] = None
+    openai_organization: str | None = None
 
     # Rate limiting settings
     rate_limit_requests_per_minute: int = 60

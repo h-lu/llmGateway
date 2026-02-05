@@ -5,7 +5,6 @@ Provides a pluggable cache backend system with in-memory and Redis implementatio
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
 import asyncio
 import time
 
@@ -15,7 +14,7 @@ class _CacheEntry:
     """Internal cache entry with TTL tracking."""
 
     value: bytes
-    expires_at: Optional[float] = None
+    expires_at: float | None = None
 
     def is_expired(self) -> bool:
         """Check if the entry has expired."""
@@ -32,7 +31,7 @@ class CacheBackend(ABC):
     """
 
     @abstractmethod
-    async def get(self, key: str) -> Optional[bytes]:
+    async def get(self, key: str) -> bytes | None:
         """Retrieve a value from the cache.
 
         Args:
@@ -96,7 +95,7 @@ class InMemoryCache(CacheBackend):
         self._data: dict[str, _CacheEntry] = {}
         self._lock = asyncio.Lock()
 
-    async def get(self, key: str) -> Optional[bytes]:
+    async def get(self, key: str) -> bytes | None:
         """Retrieve a value from the cache.
 
         Args:
@@ -201,7 +200,7 @@ class RedisCache(CacheBackend):
             ) from e
 
         self._redis_url = redis_url
-        self._redis: Optional[object] = None
+        self._redis: object | None = None
         self._client_class = aioredis.from_url
 
     async def _get_client(self) -> object:
@@ -214,7 +213,7 @@ class RedisCache(CacheBackend):
             self._redis = self._client_class(self._redis_url)
         return self._redis
 
-    async def get(self, key: str) -> Optional[bytes]:
+    async def get(self, key: str) -> bytes | None:
         """Retrieve a value from the cache.
 
         Args:
@@ -278,12 +277,12 @@ class RedisCache(CacheBackend):
 
 
 # Global cache instance (singleton pattern)
-_cache_instance: Optional[CacheBackend] = None
+_cache_instance: CacheBackend | None = None
 
 
 def get_cache(
-    backend: Optional[str] = None,
-    redis_url: Optional[str] = None,
+    backend: str | None = None,
+    redis_url: str | None = None,
     force_new: bool = False,
 ) -> CacheBackend:
     """Get or create the global cache instance.
