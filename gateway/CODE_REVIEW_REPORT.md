@@ -5,6 +5,13 @@
 **Repository:** gateway  
 **Reviewers:** Claude (Code Review Agent)
 
+> **📌 状态说明：** 本报告记录了发现的问题。如需确认修复状态，请逐一验证。
+> 
+> **状态标记：**
+> - ⬜ **PENDING** - 待修复/待验证
+> - ✅ **FIXED** - 已修复
+> - 🔄 **WIP** - 修复中
+
 ---
 
 ## Executive Summary
@@ -19,7 +26,7 @@ Reviewed the gateway codebase against latest FastAPI, asyncpg, and httpx best pr
 
 ## Critical Issues
 
-### 1. Race Condition in Quota Check (CRITICAL)
+### 1. Race Condition in Quota Check (CRITICAL) ⬜ PENDING
 
 **File:** `app/services/distributed_quota.py`  
 **Lines:** 376-410  
@@ -58,7 +65,7 @@ return {1, remaining - tonumber(ARGV[2]), new_val}
 
 ---
 
-### 2. Truncated Hash Collisions in Rate Limiting (CRITICAL)
+### 2. Truncated Hash Collisions in Rate Limiting (CRITICAL) ⬜ PENDING
 
 **File:** `app/middleware/rate_limit.py`  
 **Line:** 515  
@@ -82,7 +89,7 @@ key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:32]  # 128 bits
 
 ---
 
-### 3. Missing Input Validation for API Key Length (CRITICAL)
+### 3. Missing Input Validation for API Key Length (CRITICAL) ⬜ PENDING
 
 **File:** `app/middleware/rate_limit.py`  
 **Lines:** 510-516  
@@ -109,7 +116,7 @@ if auth.startswith("Bearer "):
 
 ---
 
-### 4. Sync Regex Evaluation Without Timeout (CRITICAL)
+### 4. Sync Regex Evaluation Without Timeout (CRITICAL) ⬜ PENDING
 
 **File:** `app/services/rule_service.py`  
 **Lines:** 495-546  
@@ -142,7 +149,7 @@ def evaluate_prompt(self, prompt: str, week_number: int) -> RuleResult:
 
 ## High Priority Issues
 
-### 5. Race Condition in Auth Cache (HIGH)
+### 5. Race Condition in Auth Cache (HIGH) ⬜ PENDING
 
 **File:** `app/middleware/auth.py`  
 **Lines:** 51-54  
@@ -173,7 +180,7 @@ async def _cache_student(token_hash: str, student: Student) -> None:
 
 ---
 
-### 6. Lost Updates During Quota Sync (HIGH)
+### 6. Lost Updates During Quota Sync (HIGH) ⬜ PENDING
 
 **File:** `app/services/distributed_quota.py`  
 **Lines:** 532-582  
@@ -195,7 +202,7 @@ async def sync_to_database(self) -> int:
 
 ---
 
-### 7. Ineffective Size Limit for Chunked Encoding (HIGH)
+### 7. Ineffective Size Limit for Chunked Encoding (HIGH) ⬜ PENDING
 
 **File:** `app/middleware/request_size.py`  
 **Lines:** 38-56  
@@ -215,7 +222,7 @@ Attackers can bypass limit by omitting Content-Length and using chunked encoding
 
 ---
 
-### 8. Duplicate Rate Limit Configuration (HIGH)
+### 8. Duplicate Rate Limit Configuration (HIGH) ⬜ PENDING
 
 **File:** `app/core/config.py`  
 **Lines:** 39-41 and 84-86  
@@ -249,7 +256,7 @@ The second definition shadows the first, so stress testing values (10000/2000) a
 
 ## Medium Priority Issues
 
-### 9. Excessive Base Pool Size (MEDIUM)
+### 9. Excessive Base Pool Size (MEDIUM) ⬜ PENDING
 
 **File:** `app/core/config.py`  
 **Line:** 29  
@@ -268,7 +275,7 @@ db_max_pool_size: int = 50  # Maximum connections
 
 ---
 
-### 10. Missing max_queries Configuration (MEDIUM)
+### 10. Missing max_queries Configuration (MEDIUM) ⬜ PENDING
 
 **File:** `app/db/async_session.py`  
 **Lines:** 52-56  
@@ -289,7 +296,7 @@ connect_args = {
 
 ---
 
-### 11. Regex Timeout Too Long (MEDIUM)
+### 11. Regex Timeout Too Long (MEDIUM) ⬜ PENDING
 
 **File:** `app/services/rule_service.py`  
 **Line:** 23  
@@ -307,7 +314,7 @@ REGEX_TIMEOUT_SECONDS = 0.1  # 100ms maximum
 
 ## Low Priority Issues
 
-### 12. Inconsistent HTTP Client Timeout Usage (LOW)
+### 12. Inconsistent HTTP Client Timeout Usage (LOW) ⬜ PENDING
 
 **File:** `app/core/http_client.py`  
 **Lines:** 80-102  
