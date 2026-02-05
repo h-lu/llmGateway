@@ -99,16 +99,35 @@ npm run dev
 
 ## 测试
 
+### 单元测试
+
 ```bash
-# 运行所有测试
-pytest
+# 运行所有单元测试
+pytest tests/ -m "not e2e" -v
 
 # 带覆盖率报告
-pytest --cov=gateway --cov-report=html
+pytest tests/ -m "not e2e" --cov=gateway --cov-report=html
 
 # 运行特定测试文件
 pytest tests/test_docs.py -v
 ```
+
+### E2E 测试
+
+```bash
+# 安装E2E依赖
+uv pip install -e ".[e2e]"
+playwright install chromium
+
+# 运行所有E2E测试（推荐）
+./scripts/run_e2e_tests.sh
+
+# 运行真实LLM测试（需要API Key）
+export TEST_LLM_API_KEY="your-deepseek-key"
+./scripts/run_e2e_tests.sh --l3
+```
+
+详细文档：[tests/e2e/README.md](tests/e2e/README.md)
 
 ## 开发
 
