@@ -1,6 +1,6 @@
 """CRUD operations for WeeklySystemPrompt model."""
 
-from typing import List, Optional
+from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +9,7 @@ from gateway.app.db.models import WeeklySystemPrompt
 
 async def get_active_prompt_for_week(
     session: AsyncSession, week_number: int
-) -> Optional[WeeklySystemPrompt]:
+) -> WeeklySystemPrompt | None:
     """Get the active system prompt for a specific week.
 
     If multiple prompts cover this week, returns the one with the narrowest range
@@ -39,7 +39,7 @@ async def get_active_prompt_for_week(
 
 async def get_all_weekly_prompts(
     session: AsyncSession, active_only: bool = False
-) -> List[WeeklySystemPrompt]:
+) -> list[WeeklySystemPrompt]:
     """Get all weekly system prompts.
 
     Args:
@@ -63,7 +63,7 @@ async def create_weekly_prompt(
     week_start: int,
     week_end: int,
     system_prompt: str,
-    description: Optional[str] = None,
+    description: str | None = None,
     auto_commit: bool = True,
 ) -> WeeklySystemPrompt:
     """Create a new weekly system prompt.
@@ -95,7 +95,7 @@ async def create_weekly_prompt(
 
 async def update_weekly_prompt(
     session: AsyncSession, prompt_id: int, auto_commit: bool = True, **kwargs
-) -> Optional[WeeklySystemPrompt]:
+) -> WeeklySystemPrompt | None:
     """Update a weekly system prompt.
 
     Args:
