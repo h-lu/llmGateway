@@ -12,7 +12,7 @@
 - **健康检查**: 自动提供商健康监控与恢复
 - **可观测性**: 结构化日志、指标和 OpenTelemetry 链路追踪
 - **高性能**: 连接池、异步操作和预热启动
-- **管理面板**: 基于 Streamlit 的直观管理界面
+- **管理面板**: 基于 React 18 + TypeScript + Vite 的现代化管理界面
 
 ## 快速开始
 
@@ -50,11 +50,14 @@ uvicorn gateway.app.main:app --reload --host 0.0.0.0 --port 8000
 uvicorn gateway.app.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-**启动管理面板：**
+**启动管理面板（前端）：**
 
 ```bash
-streamlit run admin/streamlit_app.py
+cd web
+npm install
+npm run dev
 ```
+前端运行在 http://localhost:5173
 
 ## 项目结构
 
@@ -69,9 +72,11 @@ streamlit run admin/streamlit_app.py
 │   │   ├── providers/    # AI 提供商实现
 │   │   └── services/     # 业务逻辑
 │   └── ...
-├── admin/                # Streamlit 管理面板
-│   ├── streamlit_app.py  # 主应用入口
-│   └── pages/            # 各功能页面
+├── web/                  # React 管理面板
+│   ├── src/              # 源代码
+│   └── package.json      # 依赖配置
+├── admin/                # 数据库工具模块
+│   └── db_utils_v2.py    # 数据库操作工具
 ├── tests/                # 测试用例
 └── docs/                 # 文档
 ```
@@ -110,12 +115,15 @@ pytest tests/test_docs.py -v
 ```bash
 # 代码格式化
 ruff format gateway/ admin/
+npx prettier --write web/src/
 
 # 代码检查
 ruff check gateway/ admin/
+npx eslint web/src/
 
 # 类型检查
 mypy gateway/ admin/
+cd web && npx tsc --noEmit
 ```
 
 ## 许可证
