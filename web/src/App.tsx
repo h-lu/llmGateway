@@ -14,7 +14,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/TeachProxy">
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
