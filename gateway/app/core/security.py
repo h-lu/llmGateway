@@ -1,7 +1,6 @@
 import base64
 import hashlib
 import secrets
-from typing import Optional
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -87,7 +86,7 @@ def _get_encryption_key() -> bytes:
     return key.encode() if isinstance(key, str) else key
 
 
-def encrypt_api_key(api_key: str, cipher: Optional[Fernet] = None) -> str:
+def encrypt_api_key(api_key: str, cipher: Fernet | None = None) -> str:
     """Encrypt an API key for storage.
 
     Args:
@@ -104,7 +103,7 @@ def encrypt_api_key(api_key: str, cipher: Optional[Fernet] = None) -> str:
     return base64.urlsafe_b64encode(encrypted).decode()
 
 
-def decrypt_api_key(encrypted_key: str, cipher: Optional[Fernet] = None) -> str:
+def decrypt_api_key(encrypted_key: str, cipher: Fernet | None = None) -> str:
     """Decrypt an encrypted API key.
 
     Args:
