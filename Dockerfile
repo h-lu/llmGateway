@@ -58,6 +58,7 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # 从 backend-builder 复制 Python 环境
@@ -71,6 +72,10 @@ COPY --chown=appuser:appuser admin/ ./admin/
 # 复制前端构建产物
 COPY --from=frontend-builder --chown=appuser:appuser /app/web/dist ./web/dist
 
+# 复制 entrypoint 脚本
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # 设置环境变量
 ENV PYTHONPATH=/app
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -83,5 +88,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # 暴露端口
 EXPOSE 8000
 
-# 启动命令
-CMD ["uvicorn", "gateway.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 使用 entrypoint 脚本启动
+ENTRYPOINT ["docker-entrypoint.sh"]
