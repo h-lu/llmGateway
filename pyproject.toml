@@ -20,8 +20,9 @@ dependencies = [
     "uvicorn[standard]>=0.40.0",
 ]
 
-[tool.setuptools]
-packages = ["gateway", "admin"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gateway*", "admin*"]
 
 [project.optional-dependencies]
 redis = [
