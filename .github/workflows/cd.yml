@@ -138,7 +138,7 @@ jobs:
           LOG_FORMAT=${{ secrets.LOG_FORMAT || 'json' }}
           
           # Semester
-          SEMESTER_START_DATE=${{ secrets.SEMESTER_START_DATE }}
+          SEMESTER_START_DATE=${{ secrets.SEMESTER_START_DATE || '2026-02-17' }}
           SEMESTER_WEEKS=${{ secrets.SEMESTER_WEEKS || '16' }}
           ENVFILE"
           
