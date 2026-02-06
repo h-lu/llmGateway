@@ -142,8 +142,8 @@ jobs:
           SEMESTER_WEEKS=${{ secrets.SEMESTER_WEEKS || '16' }}
           ENVFILE"
           
-          # 生成 Nginx 配置文件
-          ssh deploy "export DOMAIN=${{ secrets.DOMAIN }} && envsubst '\${DOMAIN}' < ~/teachproxy/nginx/conf.d/app.conf.template > ~/teachproxy/nginx/conf.d/app.conf"
+          # 生成 Nginx 配置文件（使用 HTTP 模式）
+          ssh deploy "cp ~/teachproxy/nginx/conf.d/default.conf ~/teachproxy/nginx/conf.d/app.conf"
           
           echo "✅ Files copied successfully"
 
@@ -186,9 +186,9 @@ jobs:
                 continue
               fi
               
-              # 检查健康端点（通过 nginx 代理）- 显示详细信息
+              # 检查健康端点（直接检查 API）
               echo "⏳ Checking health endpoint..."
-              HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost/health 2>&1)
+              HEALTH_RESPONSE=$(docker compose exec -T api curl -s -w "\n%{http_code}" http://localhost:8000/health 2>&1)
               HTTP_CODE=$(echo "$HEALTH_RESPONSE" | tail -n1)
               BODY=$(echo "$HEALTH_RESPONSE" | head -n -1)
 
@@ -232,7 +232,7 @@ jobs:
         run: |
           if [ "${{ job.status }}" == "success" ]; then
             echo "✅ Deployment successful!"
-            echo "🌐 Application is available at: https://${{ secrets.DOMAIN }}"
+            echo "🌐 Application is available at: http://${{ secrets.SSH_HOST }}"
           else
             echo "❌ Deployment failed!"
           fi
