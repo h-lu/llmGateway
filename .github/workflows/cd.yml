@@ -132,6 +132,11 @@ jobs:
           ssh deploy << 'DEPLOY'
             cd ~/teachproxy
             
+            # 清理旧容器和卷，避免缓存问题
+            echo "🧹 Cleaning up old containers and volumes..."
+            docker compose down --volumes --remove-orphans 2>/dev/null || true
+            docker system prune -af --volumes 2>/dev/null || true
+            
             # 拉取最新代码并构建
             docker compose pull
             docker compose build --no-cache
