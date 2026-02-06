@@ -153,6 +153,8 @@ volumes:
     driver: local
   redis_data:
     driver: local
+  static_files:
+    driver: local
   certbot-data:
     driver: local
   certbot-www:
