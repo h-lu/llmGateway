@@ -179,7 +179,7 @@ jobs:
             
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
               # 检查容器是否运行
-              if ! docker compose ps api | grep -q "running"; then
+              if ! docker compose ps --status running --services api | grep -qx "api"; then
                 echo "⏳ Container not ready yet..."
                 RETRY_COUNT=$((RETRY_COUNT + 1))
                 sleep 3
@@ -218,8 +218,8 @@ jobs:
               docker compose logs nginx --tail 50 2>/dev/null || echo "No nginx logs available"
               echo "📋 Container status:"
               docker compose ps
-              echo "📋 Checking if port 8000 is listening:"
-              netstat -tlnp 2>/dev/null | grep 8000 || ss -tlnp 2>/dev/null | grep 8000 || echo "Port 8000 not found"
+              echo "📋 Verifying API health from inside container network:"
+              docker compose exec -T api curl -sS -w "\n%{http_code}" http://localhost:8000/health 2>&1 || true
               exit 1
             fi
             
