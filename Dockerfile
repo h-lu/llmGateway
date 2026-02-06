@@ -14,7 +14,7 @@ WORKDIR /app/web
 COPY web/package*.json ./
 
 # 安装依赖
-RUN npm ci --only=production
+RUN npm ci
 
 # 复制源代码并构建
 COPY web/ ./
