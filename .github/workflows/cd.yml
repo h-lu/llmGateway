@@ -52,7 +52,6 @@ jobs:
     
     environment:
       name: production
-      url: https://${{ secrets.DOMAIN }}
     
     steps:
       - name: Checkout code
