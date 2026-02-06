@@ -41,8 +41,8 @@ COPY pyproject.toml uv.lock ./
 COPY gateway/ ./gateway/
 COPY admin/ ./admin/
 
-# 安装 Python 依赖
-RUN uv pip install --system -e "."
+# 安装 Python 依赖（不使用可编辑模式，复制包到 site-packages）
+RUN uv pip install --system .
 
 # -----------------------------------------
 # 阶段 3: 最终运行镜像
