@@ -18,7 +18,7 @@ RUN npm ci
 
 # 复制源代码并构建
 COPY web/ ./
-RUN npm run build
+RUN npx tsc -b && npx vite build
 
 # -----------------------------------------
 # 阶段 2: 构建后端
