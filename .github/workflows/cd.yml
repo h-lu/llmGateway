@@ -72,17 +72,35 @@ jobs:
             StrictHostKeyChecking no
           EOF
 
+      # 修复权限并更新代码
+      - name: Fix permissions and update code
+        run: |
+          echo "🔧 Fixing permissions and updating code..."
+          
+          # 修复 Git 权限并拉取最新代码
+          ssh deploy "
+            sudo git config --global --add safe.directory ~/teachproxy 2>/dev/null || true
+            cd ~/teachproxy 2>/dev/null || mkdir -p ~/teachproxy && cd ~/teachproxy
+            if [ -d .git ]; then
+              sudo git fetch origin main
+              sudo git reset --hard origin/main
+            fi
+          "
+          
+          echo "✅ Code updated successfully"
+
       # 部署到服务器
       - name: Deploy to server
         run: |
           echo "🚀 Starting deployment..."
           
-          # 创建部署目录
+          # 确保目录存在
           ssh deploy "mkdir -p ~/teachproxy"
           
           # 复制部署文件
           scp docker-compose.yml deploy:~/teachproxy/
           scp Dockerfile deploy:~/teachproxy/
+          scp docker-entrypoint.sh deploy:~/teachproxy/
           scp -r nginx deploy:~/teachproxy/
           
           # 创建环境变量文件
