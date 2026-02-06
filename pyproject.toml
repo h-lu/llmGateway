@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["gateway", "admin", "web"]
+packages = ["gateway", "admin"]
 
 [project.optional-dependencies]
 redis = [
