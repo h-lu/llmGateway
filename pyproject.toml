@@ -20,6 +20,9 @@ dependencies = [
     "uvicorn[standard]>=0.40.0",
 ]
 
+[tool.setuptools]
+packages = ["gateway", "admin", "web"]
+
 [project.optional-dependencies]
 redis = [
     "redis[hiredis]>=5.0.0",
