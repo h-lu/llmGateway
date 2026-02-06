@@ -18,7 +18,7 @@ RUN npm ci
 
 # 复制源代码并构建
 COPY web/ ./
-RUN npx tsc -b && npx vite build
+RUN node ./node_modules/typescript/bin/tsc -b && node ./node_modules/vite/bin/vite.js build
 
 # -----------------------------------------
 # 阶段 2: 构建后端
