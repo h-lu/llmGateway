@@ -111,6 +111,34 @@ jobs:
           SEMESTER_WEEKS: ${{ secrets.SEMESTER_WEEKS }}
         run: |
           echo "🚀 Starting deployment..."
+
+          if [ -z "$ADMIN_TOKEN" ]; then
+            echo "❌ ADMIN_TOKEN secret is empty"
+            exit 1
+          fi
+
+          # Docker Compose 会对 .env 中的 '$' 进行变量插值，需要先转义为 '$$'
+          escape_compose_env() {
+            printf '%s' "${1//\$/\$\$}"
+          }
+
+          DB_USER_ESCAPED=$(escape_compose_env "${DB_USER}")
+          DB_PASSWORD_ESCAPED=$(escape_compose_env "${DB_PASSWORD}")
+          DB_NAME_ESCAPED=$(escape_compose_env "${DB_NAME}")
+          DEEPSEEK_API_KEY_ESCAPED=$(escape_compose_env "${DEEPSEEK_API_KEY}")
+          DEEPSEEK_BASE_URL_ESCAPED=$(escape_compose_env "${DEEPSEEK_BASE_URL}")
+          OPENAI_API_KEY_ESCAPED=$(escape_compose_env "${OPENAI_API_KEY}")
+          OPENAI_BASE_URL_ESCAPED=$(escape_compose_env "${OPENAI_BASE_URL}")
+          TEACHER_DEEPSEEK_API_KEY_ESCAPED=$(escape_compose_env "${TEACHER_DEEPSEEK_API_KEY}")
+          TEACHER_OPENROUTER_API_KEY_ESCAPED=$(escape_compose_env "${TEACHER_OPENROUTER_API_KEY}")
+          ADMIN_TOKEN_ESCAPED=$(escape_compose_env "${ADMIN_TOKEN}")
+          API_KEY_ENCRYPTION_KEY_ESCAPED=$(escape_compose_env "${API_KEY_ENCRYPTION_KEY}")
+          RATE_LIMIT_REQUESTS_PER_MINUTE_ESCAPED=$(escape_compose_env "${RATE_LIMIT_REQUESTS_PER_MINUTE}")
+          RATE_LIMIT_BURST_SIZE_ESCAPED=$(escape_compose_env "${RATE_LIMIT_BURST_SIZE}")
+          LOG_LEVEL_ESCAPED=$(escape_compose_env "${LOG_LEVEL}")
+          LOG_FORMAT_ESCAPED=$(escape_compose_env "${LOG_FORMAT}")
+          SEMESTER_START_DATE_ESCAPED=$(escape_compose_env "${SEMESTER_START_DATE}")
+          SEMESTER_WEEKS_ESCAPED=$(escape_compose_env "${SEMESTER_WEEKS}")
           
           # 确保目录存在
           ssh deploy "mkdir -p ~/teachproxy"
@@ -129,35 +157,35 @@ jobs:
           # 创建环境变量文件（通过 env 变量注入，避免 secrets 被 shell 二次解析）
           cat > .env.deploy <<EOF
           # Database
-          DB_USER=${DB_USER}
-          DB_PASSWORD=${DB_PASSWORD}
-          DB_NAME=${DB_NAME}
+          DB_USER=${DB_USER_ESCAPED}
+          DB_PASSWORD=${DB_PASSWORD_ESCAPED}
+          DB_NAME=${DB_NAME_ESCAPED}
           
           # AI Providers
-          DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-          DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL}
-          OPENAI_API_KEY=${OPENAI_API_KEY}
-          OPENAI_BASE_URL=${OPENAI_BASE_URL}
+          DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY_ESCAPED}
+          DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL_ESCAPED}
+          OPENAI_API_KEY=${OPENAI_API_KEY_ESCAPED}
+          OPENAI_BASE_URL=${OPENAI_BASE_URL_ESCAPED}
           
           # Balance Architecture
-          TEACHER_DEEPSEEK_API_KEY=${TEACHER_DEEPSEEK_API_KEY}
-          TEACHER_OPENROUTER_API_KEY=${TEACHER_OPENROUTER_API_KEY}
+          TEACHER_DEEPSEEK_API_KEY=${TEACHER_DEEPSEEK_API_KEY_ESCAPED}
+          TEACHER_OPENROUTER_API_KEY=${TEACHER_OPENROUTER_API_KEY_ESCAPED}
           
           # Security
-          ADMIN_TOKEN=${ADMIN_TOKEN}
-          API_KEY_ENCRYPTION_KEY=${API_KEY_ENCRYPTION_KEY}
+          ADMIN_TOKEN=${ADMIN_TOKEN_ESCAPED}
+          API_KEY_ENCRYPTION_KEY=${API_KEY_ENCRYPTION_KEY_ESCAPED}
           
           # Rate Limiting
-          RATE_LIMIT_REQUESTS_PER_MINUTE=${RATE_LIMIT_REQUESTS_PER_MINUTE:-60}
-          RATE_LIMIT_BURST_SIZE=${RATE_LIMIT_BURST_SIZE:-10}
+          RATE_LIMIT_REQUESTS_PER_MINUTE=${RATE_LIMIT_REQUESTS_PER_MINUTE_ESCAPED:-60}
+          RATE_LIMIT_BURST_SIZE=${RATE_LIMIT_BURST_SIZE_ESCAPED:-10}
           
           # Logging
-          LOG_LEVEL=${LOG_LEVEL:-INFO}
-          LOG_FORMAT=${LOG_FORMAT:-json}
+          LOG_LEVEL=${LOG_LEVEL_ESCAPED:-INFO}
+          LOG_FORMAT=${LOG_FORMAT_ESCAPED:-json}
           
           # Semester
-          SEMESTER_START_DATE=${SEMESTER_START_DATE:-2026-02-17}
-          SEMESTER_WEEKS=${SEMESTER_WEEKS:-16}
+          SEMESTER_START_DATE=${SEMESTER_START_DATE_ESCAPED:-2026-02-17}
+          SEMESTER_WEEKS=${SEMESTER_WEEKS_ESCAPED:-16}
           EOF
           scp .env.deploy deploy:~/teachproxy/.env
           rm -f .env.deploy
