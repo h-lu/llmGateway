@@ -1,11 +1,10 @@
 #!/bin/sh
 set -e
 
-# 创建静态文件目录（如果不存在）
+# 创建静态文件目录并复制前端文件（以 root 身份）
 mkdir -p /app/static
-
-# 复制前端构建产物到静态目录
 cp -r /app/web/dist/* /app/static/
+chown -R appuser:appuser /app/static
 
-# 启动应用
-exec uvicorn gateway.app.main:app --host 0.0.0.0 --port 8000
+# 切换到非 root 用户并启动应用
+exec gosu appuser uvicorn gateway.app.main:app --host 0.0.0.0 --port 8000
