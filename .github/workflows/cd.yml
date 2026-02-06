@@ -77,13 +77,13 @@ jobs:
         run: |
           echo "🔧 Fixing permissions and updating code..."
           
-          # 修复 Git 权限并拉取最新代码
+          # 修复 Git 权限并拉取最新代码（不使用 sudo，避免权限问题）
           ssh deploy "
-            sudo git config --global --add safe.directory ~/teachproxy 2>/dev/null || true
+            git config --global --add safe.directory ~/teachproxy 2>/dev/null || true
             cd ~/teachproxy 2>/dev/null || mkdir -p ~/teachproxy && cd ~/teachproxy
             if [ -d .git ]; then
-              sudo git fetch origin main
-              sudo git reset --hard origin/main
+              git fetch origin main
+              git reset --hard origin/main
             fi
           "
           
@@ -186,10 +186,17 @@ jobs:
                 continue
               fi
               
-              # 检查健康端点
-              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
-                echo "✅ API is healthy"
+              # 检查健康端点（通过 nginx 代理）- 显示详细信息
+              echo "⏳ Checking health endpoint..."
+              HEALTH_RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost/health 2>&1)
+              HTTP_CODE=$(echo "$HEALTH_RESPONSE" | tail -n1)
+              BODY=$(echo "$HEALTH_RESPONSE" | head -n -1)
+
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "✅ API is healthy: $BODY"
                 break
+              else
+                echo "⚠️ Health check returned HTTP $HTTP_CODE: $BODY"
               fi
               
               # 检查容器日志是否有启动错误
@@ -207,8 +214,12 @@ jobs:
               echo "❌ Health check failed after $MAX_RETRIES attempts"
               echo "📋 Container logs:"
               docker compose logs api --tail 100
+              echo "📋 Nginx logs:"
+              docker compose logs nginx --tail 50 2>/dev/null || echo "No nginx logs available"
               echo "📋 Container status:"
               docker compose ps
+              echo "📋 Checking if port 8000 is listening:"
+              netstat -tlnp 2>/dev/null | grep 8000 || ss -tlnp 2>/dev/null | grep 8000 || echo "Port 8000 not found"
               exit 1
             fi
             

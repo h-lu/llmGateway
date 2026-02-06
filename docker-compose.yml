@@ -90,7 +90,7 @@ services:
       LOG_FORMAT: ${LOG_FORMAT:-json}
       
       # 学期配置
-      SEMESTER_START_DATE: ${SEMESTER_START_DATE}
+      SEMESTER_START_DATE: ${SEMESTER_START_DATE:-2026-02-17}
       SEMESTER_WEEKS: ${SEMESTER_WEEKS:-16}
     depends_on:
       postgres:
