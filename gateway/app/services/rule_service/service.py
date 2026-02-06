@@ -58,11 +58,10 @@ class RuleService:
             # Import here to allow tests to patch at package level
             from gateway.app.services.rule_service import get_all_rules_async
 
-            try:
+            if self.db is not None:
                 rules = await get_all_rules_async(self.db)
-            except Exception:
-                # If no db is provided (e.g., in tests with mocked function),
-                # try calling without arguments
+            else:
+                # For test scenarios with mocked function
                 rules = await get_all_rules_async()
             self._rules_cache = rules or []
             self._cache_valid = True
