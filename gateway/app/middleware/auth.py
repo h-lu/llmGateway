@@ -101,6 +101,9 @@ def get_admin_token() -> str:
     # Use a simple module-level cache
     if not hasattr(get_admin_token, "_cached_token"):
         token = os.getenv("ADMIN_TOKEN")
+        if token is not None:
+            # Normalize accidental whitespace/newline from env/secret stores.
+            token = token.strip()
         if not token:
             raise ValueError(
                 "ADMIN_TOKEN environment variable is not set. "
