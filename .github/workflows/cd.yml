@@ -101,7 +101,12 @@ jobs:
           scp docker-compose.yml deploy:~/teachproxy/
           scp Dockerfile deploy:~/teachproxy/
           scp docker-entrypoint.sh deploy:~/teachproxy/
+          scp pyproject.toml deploy:~/teachproxy/
+          scp uv.lock deploy:~/teachproxy/
           scp -r nginx deploy:~/teachproxy/
+          scp -r gateway deploy:~/teachproxy/
+          scp -r admin deploy:~/teachproxy/
+          scp -r web deploy:~/teachproxy/
           
           # 创建环境变量文件
           ssh deploy "cat > ~/teachproxy/.env << 'ENVFILE'
@@ -133,7 +138,7 @@ jobs:
           LOG_FORMAT=${{ secrets.LOG_FORMAT || 'json' }}
           
           # Semester
-          SEMESTER_START_DATE=${{ secrets.SEMESTER_START_DATE }}
+          SEMESTER_START_DATE=${{ secrets.SEMESTER_START_DATE || '2026-02-17' }}
           SEMESTER_WEEKS=${{ secrets.SEMESTER_WEEKS || '16' }}
           ENVFILE"
           
