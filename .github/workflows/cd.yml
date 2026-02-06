@@ -150,52 +150,67 @@ jobs:
       # 执行部署
       - name: Execute deployment
         run: |
-          echo "🐳 Pulling and starting containers..."
+          echo "🐳 Deploying containers..."
           
           ssh deploy << 'DEPLOY'
             cd ~/teachproxy
             
-            # 清理旧容器和卷，避免缓存问题
-            echo "🧹 Cleaning up old containers and volumes..."
-            docker compose down --volumes --remove-orphans 2>/dev/null || true
-            docker system prune -af --volumes 2>/dev/null || true
+            # 停止旧容器
+            echo "🛑 Stopping old containers..."
+            docker compose down --timeout 30 2>/dev/null || true
             
-            # 拉取最新代码并构建
+            # 清理旧镜像（仅清理未使用的，保留缓存）
+            echo "🧹 Cleaning up unused images..."
+            docker image prune -f 2>/dev/null || true
+            
+            # 拉取基础镜像并构建（使用 BuildKit 强制重建应用层）
+            echo "🔨 Building containers..."
             docker compose pull
-            docker compose build --no-cache
+            DOCKER_BUILDKIT=1 docker compose build --no-cache --progress=plain
             
-            # 优雅重启
-            docker compose down --timeout 30
+            # 启动服务
+            echo "🚀 Starting services..."
             docker compose up -d
             
-            # 等待服务启动
-            echo "⏳ Waiting for services to start..."
-            sleep 10
-            
-            # 健康检查
+            # 健康检查（不固定等待，直接检查）
             echo "🏥 Running health check..."
-            MAX_RETRIES=10
+            MAX_RETRIES=15
             RETRY_COUNT=0
             
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              # 检查容器是否运行
+              if ! docker compose ps api | grep -q "running"; then
+                echo "⏳ Container not ready yet..."
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                sleep 3
+                continue
+              fi
+              
+              # 检查健康端点
               if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
                 echo "✅ API is healthy"
                 break
               fi
               
+              # 检查容器日志是否有启动错误
+              if docker compose logs api --tail 5 2>/dev/null | grep -qi "error"; then
+                echo "⚠️ Detected errors in container logs:"
+                docker compose logs api --tail 20
+              fi
+              
               RETRY_COUNT=$((RETRY_COUNT + 1))
-              echo "⏳ Health check attempt $RETRY_COUNT/$MAX_RETRIES failed, retrying..."
-              sleep 5
+              echo "⏳ Health check attempt $RETRY_COUNT/$MAX_RETRIES..."
+              sleep 3
             done
             
             if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
               echo "❌ Health check failed after $MAX_RETRIES attempts"
-              docker compose logs api --tail 50
+              echo "📋 Container logs:"
+              docker compose logs api --tail 100
+              echo "📋 Container status:"
+              docker compose ps
               exit 1
             fi
-            
-            # 清理旧镜像
-            docker image prune -af --filter "until=24h"
             
             echo "✅ Deployment completed successfully!"
           DEPLOY
