@@ -39,9 +39,13 @@ export function StudentsPage() {
       queryClient.invalidateQueries({ queryKey: ['students'] });
     },
     onError: (error: unknown) => {
-      const detail = (error as any)?.response?.data?.detail;
-      const message = detail || (error as any)?.message || 'Failed to create student';
-      setCreateError(String(message));
+      const maybeErr = error as { response?: { data?: { detail?: unknown } }; message?: unknown };
+      const detail = maybeErr.response?.data?.detail;
+      const message =
+        (typeof detail === 'string' && detail) ||
+        (typeof maybeErr.message === 'string' && maybeErr.message) ||
+        'Failed to create student';
+      setCreateError(message);
     },
   });
 
