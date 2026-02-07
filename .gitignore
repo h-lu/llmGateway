@@ -37,6 +37,8 @@ ENV/
 # Project specific
 .env
 *.db
+*.db-*
+*.db.backup.*
 *.sqlite
 *.sqlite3
 
