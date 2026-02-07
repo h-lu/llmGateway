@@ -1,8 +1,65 @@
 import os
 from datetime import date
+import json
+import re
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+def _parse_cors_origins(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        items = [str(v).strip() for v in raw]
+        return [v for v in items if v]
+
+    raw = str(raw).strip()
+    if not raw or raw == "[]":
+        return []
+    if raw == "*":
+        return ["*"]
+
+    # Prefer JSON (recommended format), but tolerate non-JSON values to avoid
+    # crashing the app on misconfigured deployments.
+    if raw.startswith(("[", "{", '"', "'")):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            items = [str(v).strip() for v in parsed]
+            return [v for v in items if v]
+        if isinstance(parsed, str):
+            raw = parsed.strip()
+            if not raw or raw == "[]":
+                return []
+            if raw == "*":
+                return ["*"]
+
+    parts = [p for p in re.split(r"[,\s]+", raw) if p]
+    origins: list[str] = []
+    for part in parts:
+        if part == "*":
+            return ["*"]
+        if "://" in part:
+            origins.append(part)
+            continue
+        # If a host is provided without scheme, support both HTTP and HTTPS
+        # origins. Browsers include the scheme in the Origin header.
+        origins.append(f"http://{part}")
+        origins.append(f"https://{part}")
+
+    # Deduplicate while preserving order.
+    seen: set[str] = set()
+    result: list[str] = []
+    for origin in origins:
+        if origin in seen:
+            continue
+        seen.add(origin)
+        result.append(origin)
+    return result
 
 
 class Settings(BaseSettings):
@@ -134,7 +191,14 @@ class Settings(BaseSettings):
     max_failover_attempts: int = 3  # Maximum failover attempts for provider failures
 
     # CORS settings
-    cors_origins: list[str] = ["*"]  # Allowed CORS origins
+    # Use NoDecode so misconfigured values (e.g. "43.163.94.63") don't crash JSON
+    # parsing at startup.
+    cors_origins: Annotated[list[str], NoDecode] = ["*"]  # Allowed CORS origins
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def decode_cors_origins(cls, v: Any) -> list[str]:
+        return _parse_cors_origins(v)
 
     # LLM Provider settings (Balance Architecture)
     # Teacher Key Pool - DeepSeek Direct (Primary)
