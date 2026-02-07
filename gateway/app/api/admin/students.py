@@ -1,6 +1,8 @@
+from typing import Any, Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+
 from admin.db_utils_v2 import (
     get_all_students,
     create_student,
@@ -13,6 +15,33 @@ from admin.db_utils_v2 import (
 )
 
 router = APIRouter()
+
+
+def _serialize_student(student: Any) -> dict:
+    """Serialize a student object to a JSON-safe dict.
+
+    FastAPI (Pydantic v2) can't serialize SQLAlchemy ORM objects by default.
+    Keep this boundary safe even if upstream code returns ORM instances.
+    """
+    if isinstance(student, dict):
+        return student
+
+    from gateway.app.db.models import Student as StudentModel
+
+    if isinstance(student, StudentModel):
+        return {
+            "id": student.id,
+            "name": student.name,
+            "email": student.email,
+            "api_key_hash": student.api_key_hash,
+            "created_at": student.created_at,
+            "current_week_quota": student.current_week_quota,
+            "used_quota": student.used_quota,
+            "provider_api_key_encrypted": student.provider_api_key_encrypted,
+            "provider_type": student.provider_type,
+        }
+
+    raise TypeError(f"Unsupported student type: {type(student)!r}")
 
 
 class StudentCreate(BaseModel):
@@ -46,7 +75,7 @@ async def create_new_student(data: StudentCreate) -> dict:
     student, api_key = create_student(
         name=data.name, email=data.email, quota=data.quota
     )
-    return {"student": student, "api_key": api_key}
+    return {"student": _serialize_student(student), "api_key": api_key}
 
 
 @router.get("/{student_id}")
@@ -55,7 +84,7 @@ async def get_student(student_id: str) -> dict:
     student = get_student_by_id(student_id)
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
-    return student
+    return _serialize_student(student)
 
 
 @router.put("/{student_id}/quota")

@@ -184,13 +184,28 @@ def get_all_students() -> List[Dict[str, Any]]:
         ]
 
 
-def get_student_by_id(student_id: str) -> Optional[Student]:
-    """根据 ID 获取学生"""
+def get_student_by_id(student_id: str) -> Optional[Dict[str, Any]]:
+    """根据 ID 获取学生（返回 dict，避免 ORM 序列化问题）"""
     with get_db_session() as session:
-        return session.query(Student).filter(Student.id == student_id).first()
+        s = session.query(Student).filter(Student.id == student_id).first()
+        if not s:
+            return None
+        return {
+            "id": s.id,
+            "name": s.name,
+            "email": s.email,
+            "api_key_hash": s.api_key_hash,
+            "created_at": s.created_at,
+            "current_week_quota": s.current_week_quota,
+            "used_quota": s.used_quota,
+            "provider_api_key_encrypted": s.provider_api_key_encrypted,
+            "provider_type": s.provider_type,
+        }
 
 
-def create_student(name: str, email: str, quota: int = 10000) -> tuple[Student, str]:
+def create_student(
+    name: str, email: str, quota: int = 10000
+) -> tuple[Dict[str, Any], str]:
     """
     创建新学生
 
@@ -216,21 +231,21 @@ def create_student(name: str, email: str, quota: int = 10000) -> tuple[Student, 
 
     with get_db_session() as session:
         session.add(student)
-        # 需要刷新以获取生成的 ID
         session.flush()
         session.refresh(student)
-        # 创建一个新的对象来返回，因为 session 关闭后无法访问关系属性
-        student_copy = Student(
-            id=student.id,
-            name=student.name,
-            email=student.email,
-            api_key_hash=student.api_key_hash,
-            created_at=student.created_at,
-            current_week_quota=student.current_week_quota,
-            used_quota=student.used_quota,
-        )
+        student_dict = {
+            "id": student.id,
+            "name": student.name,
+            "email": student.email,
+            "api_key_hash": student.api_key_hash,
+            "created_at": student.created_at,
+            "current_week_quota": student.current_week_quota,
+            "used_quota": student.used_quota,
+            "provider_api_key_encrypted": student.provider_api_key_encrypted,
+            "provider_type": student.provider_type,
+        }
 
-    return student_copy, api_key
+    return student_dict, api_key
 
 
 def update_student_quota(student_id: str, new_quota: int) -> bool:
