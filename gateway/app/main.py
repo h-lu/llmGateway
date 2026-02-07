@@ -15,7 +15,11 @@ from gateway.app.core.http_client import init_http_client
 from gateway.app.core.logging import get_logger, setup_logging
 from gateway.app.core.gc_optimizer import gc_optimizer, setup_gc_optimization
 from gateway.app.db.async_session import close_async_engine
-from gateway.app.db.init_db import init_database, verify_connection
+from gateway.app.db.init_db import (
+    init_database,
+    verify_connection,
+    ensure_students_schema,
+)
 from gateway.app.db.async_session import warmup_connection_pool
 from gateway.app.db import models  # noqa: F401 - import to register models
 from gateway.app.core.config import settings
@@ -60,6 +64,8 @@ def create_app() -> FastAPI:
 
             # Initialize async database (create tables)
             await init_database(drop_first=settings.debug)  # Only drop in debug mode
+            # Ensure additive schema updates on existing DBs (create_all doesn't alter tables).
+            await ensure_students_schema()
 
             # Warm up connection pool for high concurrency
             # Pre-create connections to avoid connection storm during traffic spike
