@@ -28,7 +28,6 @@ describe('API Client', () => {
     expect(handler).toBeTruthy()
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
       await handler!.rejected!({ response: { status: 401 } })
     } catch {
       // axios interceptor is expected to reject
