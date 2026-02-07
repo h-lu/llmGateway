@@ -24,7 +24,10 @@ describe('API Client', () => {
     const expectedHref = '/TeachProxy/login'
     window.location.href = ''
 
-    const handler = api.interceptors.response.handlers.find((h) => typeof h?.rejected === 'function')
+    type InterceptorHandler = { rejected?: (error: unknown) => unknown }
+    const handlers =
+      (api.interceptors.response as unknown as { handlers?: InterceptorHandler[] }).handlers ?? []
+    const handler = handlers.find((h) => typeof h?.rejected === 'function')
     expect(handler).toBeTruthy()
 
     try {
