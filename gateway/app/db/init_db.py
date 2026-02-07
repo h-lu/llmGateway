@@ -46,7 +46,9 @@ async def ensure_students_schema(engine: AsyncEngine | None = None) -> None:
         if dialect == "sqlite":
             cols = {
                 row[1]
-                for row in (await conn.execute(text("PRAGMA table_info(students);"))).all()
+                for row in (
+                    await conn.execute(text("PRAGMA table_info(students);"))
+                ).all()
             }
             if not cols:
                 return
