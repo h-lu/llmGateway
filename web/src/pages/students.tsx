@@ -4,7 +4,7 @@ import { studentsApi, conversationsApi } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +17,7 @@ export function StudentsPage() {
   const [search, setSearch] = useState('');
   const [newStudent, setNewStudent] = useState({ name: '', email: '', quota: 10000 });
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   const { data: students, isLoading } = useQuery({
@@ -34,7 +35,13 @@ export function StudentsPage() {
     mutationFn: studentsApi.create,
     onSuccess: (data) => {
       setCreatedKey(data.api_key);
+      setCreateError(null);
       queryClient.invalidateQueries({ queryKey: ['students'] });
+    },
+    onError: (error: unknown) => {
+      const detail = (error as any)?.response?.data?.detail;
+      const message = detail || (error as any)?.message || 'Failed to create student';
+      setCreateError(String(message));
     },
   });
 
@@ -77,44 +84,56 @@ export function StudentsPage() {
     <div className="space-y-6 p-8">
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-bold">Students</h2>
-        <Dialog>
+        <Dialog onOpenChange={(open) => open && setCreateError(null)}>
           <DialogTrigger asChild>
             <Button><Plus className="mr-2 h-4 w-4" /> Add Student</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Student</DialogTitle>
+              <DialogDescription>Create a student account and generate an API key.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div>
-                <Label>Name</Label>
+                <Label htmlFor="new-student-name">Name</Label>
                 <Input
+                  id="new-student-name"
                   value={newStudent.name}
                   onChange={e => setNewStudent({...newStudent, name: e.target.value})}
                 />
               </div>
               <div>
-                <Label>Email</Label>
+                <Label htmlFor="new-student-email">Email</Label>
                 <Input
+                  id="new-student-email"
                   type="email"
                   value={newStudent.email}
                   onChange={e => setNewStudent({...newStudent, email: e.target.value})}
                 />
               </div>
               <div>
-                <Label>Weekly Quota</Label>
+                <Label htmlFor="new-student-quota">Weekly Quota</Label>
                 <Input
+                  id="new-student-quota"
                   type="number"
                   value={newStudent.quota}
-                  onChange={e => setNewStudent({...newStudent, quota: parseInt(e.target.value)})}
+                  onChange={e => {
+                    const quota = Number.parseInt(e.target.value, 10);
+                    setNewStudent({...newStudent, quota: Number.isFinite(quota) ? quota : 0});
+                  }}
                 />
               </div>
               <Button
                 onClick={() => createMutation.mutate(newStudent)}
-                disabled={!newStudent.name || !newStudent.email}
+                disabled={!newStudent.name || !newStudent.email || createMutation.isPending}
               >
-                Create
+                {createMutation.isPending ? 'Creating...' : 'Create'}
               </Button>
+              {createError && (
+                <p role="alert" className="text-sm text-red-600">
+                  {createError}
+                </p>
+              )}
             </div>
           </DialogContent>
         </Dialog>
