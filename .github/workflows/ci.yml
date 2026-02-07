@@ -113,12 +113,10 @@ jobs:
       - name: Run ESLint
         working-directory: ./web
         run: npm run lint
-        continue-on-error: true
 
       - name: Run TypeScript check
         working-directory: ./web
         run: npx tsc --noEmit
-        continue-on-error: true
 
   # ==================== 构建检查 ====================
   frontend-build:
