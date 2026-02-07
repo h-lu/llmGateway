@@ -47,6 +47,10 @@ async def _get_cached_student(token_hash: str) -> Optional[Student]:
                     created_at=student_dict["created_at"],
                     current_week_quota=student_dict["current_week_quota"],
                     used_quota=student_dict["used_quota"],
+                    provider_api_key_encrypted=student_dict.get(
+                        "provider_api_key_encrypted"
+                    ),
+                    provider_type=student_dict.get("provider_type", "deepseek"),
                 )
                 return student
             else:
@@ -85,6 +89,8 @@ async def _cache_student(token_hash: str, student: Student) -> None:
             "created_at": student.created_at,
             "current_week_quota": student.current_week_quota,
             "used_quota": student.used_quota,
+            "provider_api_key_encrypted": student.provider_api_key_encrypted,
+            "provider_type": student.provider_type,
         }
         _api_key_cache[token_hash] = (student_dict, time.time())
 
