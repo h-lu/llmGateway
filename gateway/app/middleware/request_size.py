@@ -6,6 +6,8 @@ memory exhaustion attacks and ensure fair resource usage.
 Enforces size limits for both Content-Length and chunked transfer encoding.
 """
 
+import json
+
 from starlette.types import Receive, Scope, Send
 
 
@@ -130,10 +132,6 @@ class RequestSizeLimitMiddleware:
         except SizeLimitedStream.SizeExceededError as exc:
             # Catch size limit violations and send 413 response
             await self._send_413_response(send, detail=str(exc))
-        except Exception:
-            # For other unexpected exceptions, still send 413 as safety measure
-            await self._send_413_response(send)
-            raise
 
     async def _send_413_response(self, send: Send, detail: str = None) -> None:
         """Send a 413 Payload Too Large response.
@@ -147,19 +145,20 @@ class RequestSizeLimitMiddleware:
                 f"Request body too large. Maximum allowed: {self.max_body_size} bytes"
             )
 
+        payload = json.dumps({"detail": detail}).encode()
         await send(
             {
                 "type": "http.response.start",
                 "status": 413,
                 "headers": [
                     [b"content-type", b"application/json"],
-                    [b"content-length", str(len(detail)).encode()],
+                    [b"content-length", str(len(payload)).encode()],
                 ],
             }
         )
         await send(
             {
                 "type": "http.response.body",
-                "body": detail.encode(),
+                "body": payload,
             }
         )
