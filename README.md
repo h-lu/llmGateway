@@ -153,9 +153,21 @@ npm run dev
 | 方法 | 端点 | 描述 | 认证 |
 |------|------|------|------|
 | `POST` | `/v1/chat/completions` | 聊天补全 (OpenAI 兼容) | API Key |
+| `POST` | `/v1/student/register` | 学生自助注册（返回学生 API Key） | 课程注册码 |
 | `GET` | `/v1/models` | 列出可用模型 | API Key |
 | `GET` | `/health` | 健康检查 | 公开 |
 | `GET` | `/metrics` | Prometheus 指标 | 公开 |
+
+### 学生自助注册（推荐）
+
+为避免老师手动创建并逐个发放 API Key，本项目提供了学生自助注册流程：
+
+1. 在环境变量中设置 `STUDENT_REGISTRATION_CODE`（一个班级共用的注册码）
+2. 学生打开 `http://<host>/TeachProxy/student-onboard.html`，输入注册码、姓名、邮箱
+3. 页面会返回学生 `api_key`（只显示一次），学生保存后用于调用 `/v1/chat/completions`
+4. 如需验证可用性，打开 `http://<host>/TeachProxy/student-test.html` 测试 API Key
+
+> 安全提示：如果学生丢失或泄露 API Key，需要管理员在后台为该学生 `Regenerate key`。
 
 ### 管理端点 (Admin)
 
@@ -455,4 +467,3 @@ SEMESTER_WEEKS=16
 ---
 
 <p align="center">Made with ❤️ for AI Education</p>
-

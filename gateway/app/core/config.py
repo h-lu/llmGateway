@@ -163,6 +163,11 @@ class Settings(BaseSettings):
     # API Key encryption
     api_key_encryption_key: str = ""  # 32-byte base64 encoded key
 
+    # Student self-registration (optional)
+    # If STUDENT_REGISTRATION_CODE is empty, the self-registration endpoint is disabled.
+    student_registration_code: str = ""
+    student_self_register_default_quota: int = 10000
+
     # Cost tracking
     cost_tracking_enabled: bool = True
 
