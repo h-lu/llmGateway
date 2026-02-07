@@ -105,6 +105,7 @@ jobs:
           API_KEY_ENCRYPTION_KEY: ${{ secrets.API_KEY_ENCRYPTION_KEY }}
           STUDENT_REGISTRATION_CODE: ${{ secrets.STUDENT_REGISTRATION_CODE }}
           STUDENT_SELF_REGISTER_DEFAULT_QUOTA: ${{ secrets.STUDENT_SELF_REGISTER_DEFAULT_QUOTA }}
+          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
           RATE_LIMIT_REQUESTS_PER_MINUTE: ${{ secrets.RATE_LIMIT_REQUESTS_PER_MINUTE }}
           RATE_LIMIT_BURST_SIZE: ${{ secrets.RATE_LIMIT_BURST_SIZE }}
           LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
@@ -137,6 +138,7 @@ jobs:
           API_KEY_ENCRYPTION_KEY_ESCAPED=$(escape_compose_env "${API_KEY_ENCRYPTION_KEY}")
           STUDENT_REGISTRATION_CODE_ESCAPED=$(escape_compose_env "${STUDENT_REGISTRATION_CODE}")
           STUDENT_SELF_REGISTER_DEFAULT_QUOTA_ESCAPED=$(escape_compose_env "${STUDENT_SELF_REGISTER_DEFAULT_QUOTA}")
+          CORS_ORIGINS_ESCAPED=$(escape_compose_env "${CORS_ORIGINS}")
           RATE_LIMIT_REQUESTS_PER_MINUTE_ESCAPED=$(escape_compose_env "${RATE_LIMIT_REQUESTS_PER_MINUTE}")
           RATE_LIMIT_BURST_SIZE_ESCAPED=$(escape_compose_env "${RATE_LIMIT_BURST_SIZE}")
           LOG_LEVEL_ESCAPED=$(escape_compose_env "${LOG_LEVEL}")
@@ -153,6 +155,7 @@ jobs:
           scp docker-entrypoint.sh deploy:~/teachproxy/
           scp pyproject.toml deploy:~/teachproxy/
           scp uv.lock deploy:~/teachproxy/
+          scp -r init-scripts deploy:~/teachproxy/
           scp -r nginx deploy:~/teachproxy/
           scp -r gateway deploy:~/teachproxy/
           scp -r admin deploy:~/teachproxy/
@@ -180,6 +183,7 @@ jobs:
           API_KEY_ENCRYPTION_KEY=${API_KEY_ENCRYPTION_KEY_ESCAPED}
           STUDENT_REGISTRATION_CODE=${STUDENT_REGISTRATION_CODE_ESCAPED}
           STUDENT_SELF_REGISTER_DEFAULT_QUOTA=${STUDENT_SELF_REGISTER_DEFAULT_QUOTA_ESCAPED:-10000}
+          CORS_ORIGINS=${CORS_ORIGINS_ESCAPED:-[]}
           
           # Rate Limiting
           RATE_LIMIT_REQUESTS_PER_MINUTE=${RATE_LIMIT_REQUESTS_PER_MINUTE_ESCAPED:-60}
