@@ -1,8 +1,58 @@
+import json
 import os
+import re
 from datetime import date
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _parse_cors_origins(raw: str) -> list[str]:
+    raw = (raw or "").strip()
+    if not raw or raw == "[]":
+        return []
+    if raw == "*":
+        return ["*"]
+
+    # Prefer JSON (recommended format), but tolerate non-JSON values to avoid
+    # crashing the app on misconfigured deployments.
+    if raw.startswith(("[", "{", '"', "'")):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            items = [str(v).strip() for v in parsed]
+            return [v for v in items if v]
+        if isinstance(parsed, str):
+            raw = parsed.strip()
+            if not raw or raw == "[]":
+                return []
+            if raw == "*":
+                return ["*"]
+
+    parts = [p for p in re.split(r"[,\s]+", raw) if p]
+    origins: list[str] = []
+    for part in parts:
+        if part == "*":
+            return ["*"]
+        if "://" in part:
+            origins.append(part)
+            continue
+        # If a host is provided without scheme, support both HTTP and HTTPS
+        # origins. Browsers include the scheme in the Origin header.
+        origins.append(f"http://{part}")
+        origins.append(f"https://{part}")
+
+    # Deduplicate while preserving order.
+    seen: set[str] = set()
+    result: list[str] = []
+    for origin in origins:
+        if origin in seen:
+            continue
+        seen.add(origin)
+        result.append(origin)
+    return result
 
 
 class Settings(BaseSettings):
@@ -134,7 +184,18 @@ class Settings(BaseSettings):
     max_failover_attempts: int = 3  # Maximum failover attempts for provider failures
 
     # CORS settings
-    cors_origins: list[str] = ["*"]  # Allowed CORS origins
+    cors_origins_raw: str = Field(
+        default="*",
+        validation_alias="CORS_ORIGINS",
+        description=(
+            "Allowed CORS origins. Accepts JSON list (recommended), a comma-separated "
+            "list, a single origin, '*' or an empty value."
+        ),
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return _parse_cors_origins(self.cors_origins_raw)
 
     # LLM Provider settings (Balance Architecture)
     # Teacher Key Pool - DeepSeek Direct (Primary)
