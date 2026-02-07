@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TeachProxy Student Onboarding</title>
+    <link rel="stylesheet" href="./student-test.css" />
+    <script src="./student-onboard.js" defer></script>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>TeachProxy Student Onboarding</h1>
+          <p class="sub">
+            Self-register to receive your own API key (Bearer token) for
+            <span style="font-family: var(--mono)">POST /v1/chat/completions</span>.
+            You must save the key; if you lose it, ask the teacher to reset.
+          </p>
+        </div>
+        <div class="badge">Requires course registration code</div>
+      </header>
+
+      <div class="grid">
+        <div class="card">
+          <div class="hd">
+            <div class="title">Register</div>
+          </div>
+          <div class="bd">
+            <label for="baseUrl">Server base URL (no /v1)</label>
+            <div class="row">
+              <input id="baseUrl" placeholder="http://example.com" />
+              <button class="btn" id="useOrigin" type="button">Use current</button>
+            </div>
+            <div class="hint">
+              Default: <code id="originText"></code>
+            </div>
+
+            <div style="height: 14px"></div>
+
+            <label for="regCode">Registration code</label>
+            <input id="regCode" type="password" placeholder="provided by teacher" />
+
+            <div style="height: 14px"></div>
+
+            <label for="name">Name</label>
+            <input id="name" placeholder="Your name" />
+
+            <div style="height: 14px"></div>
+
+            <label for="email">Email</label>
+            <input id="email" type="email" placeholder="you@example.com" />
+
+            <div style="height: 14px"></div>
+
+            <div class="row" style="flex-wrap: wrap">
+              <button class="btn primary" id="registerBtn" type="button">
+                Register
+              </button>
+              <button class="btn" id="copyCurl" type="button" disabled>
+                Copy chat curl
+              </button>
+              <button class="btn" id="openTester" type="button" disabled>
+                Open key tester
+              </button>
+              <button class="btn" id="clearBtn" type="button">Clear</button>
+            </div>
+
+            <div class="footer">
+              Endpoint used: <code>POST /v1/student/register</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="hd">
+            <div class="title">Result</div>
+            <div class="status" id="statusRow"></div>
+          </div>
+          <div class="bd">
+            <label>API key (save this!)</label>
+            <pre id="apiKeyOut"></pre>
+
+            <div style="height: 12px"></div>
+
+            <label>Response JSON</label>
+            <pre id="jsonOut"></pre>
+
+            <div class="footer">
+              Tip: after registering, you can test the key at
+              <code>/TeachProxy/student-test.html</code>.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+
