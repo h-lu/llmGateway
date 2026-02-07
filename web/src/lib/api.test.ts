@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { dashboardApi, studentsApi, conversationsApi, rulesApi, promptsApi } from './api'
+import api, { dashboardApi, studentsApi, conversationsApi, rulesApi, promptsApi } from './api'
 
 describe('API Client', () => {
   beforeEach(() => {
@@ -15,6 +15,28 @@ describe('API Client', () => {
     it('should have getActivity method', () => {
       expect(typeof dashboardApi.getActivity).toBe('function')
     })
+  })
+
+  it('redirects to login under BASE_URL on 401', async () => {
+    // In production this app is served under `/TeachProxy/` (nginx + Vite base).
+    // We derive the redirect target from the current path to avoid hardcoding.
+    window.location.pathname = '/TeachProxy/students'
+    const expectedHref = '/TeachProxy/login'
+    window.location.href = ''
+
+    type InterceptorHandler = { rejected?: (error: unknown) => unknown }
+    const handlers =
+      (api.interceptors.response as unknown as { handlers?: InterceptorHandler[] }).handlers ?? []
+    const handler = handlers.find((h) => typeof h?.rejected === 'function')
+    expect(handler).toBeTruthy()
+
+    try {
+      await handler!.rejected!({ response: { status: 401 } })
+    } catch {
+      // axios interceptor is expected to reject
+    }
+
+    expect(window.location.href).toBe(expectedHref)
   })
 
   describe('studentsApi', () => {

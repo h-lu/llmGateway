@@ -2,6 +2,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 
 from admin.db_utils_v2 import (
     get_all_students,
@@ -72,9 +73,15 @@ async def list_students() -> list[dict]:
 @router.post("")
 async def create_new_student(data: StudentCreate) -> dict:
     """Create a new student."""
-    student, api_key = create_student(
-        name=data.name, email=data.email, quota=data.quota
-    )
+    try:
+        student, api_key = create_student(
+            name=data.name, email=data.email, quota=data.quota
+        )
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail="Email already registered",
+        )
     return {"student": _serialize_student(student), "api_key": api_key}
 
 

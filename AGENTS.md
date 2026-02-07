@@ -7,7 +7,8 @@
 <EXTREMELY_IMPORTANT>
 You have superpowers. Superpowers teach you new skills and capabilities.
 
-**For Codex:** Run `~/.codex/superpowers/.codex/superpowers-codex bootstrap` and follow the instructions.
+**For Codex:** Superpowers uses native skill discovery now (no bootstrap script).
+Follow `~/.codex/superpowers/.codex/INSTALL.md` (clone + symlink), then restart Codex.
 
 **For Kimi CLI:** Superpowers skills are automatically loaded from `~/.config/agents/skills/superpowers/skills/`. 
 Available skills include:

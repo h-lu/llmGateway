@@ -141,10 +141,12 @@ def create_app() -> FastAPI:
 
     # Add middleware (order matters: last added = first executed)
     # CORS middleware (outermost - handles preflight requests first)
+    # Note: We don't rely on cookie-based auth, so keep allow_credentials disabled.
+    # This avoids invalid CORS combinations with wildcard headers/origins.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         allow_headers=["*"],
         expose_headers=[

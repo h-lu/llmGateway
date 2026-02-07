@@ -3,6 +3,21 @@ import type { Student, Conversation, Rule, WeeklyPrompt, DashboardStats } from '
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+function getAppBasePath(): string {
+  // Prefer Vite-provided base when available.
+  const viteBase = import.meta.env.BASE_URL || '/';
+  if (viteBase && viteBase !== '/') {
+    return viteBase.endsWith('/') ? viteBase : `${viteBase}/`;
+  }
+
+  // Fallback: derive from current pathname (useful behind reverse proxies).
+  const pathname = window.location?.pathname || '/';
+  if (pathname === '/TeachProxy' || pathname.startsWith('/TeachProxy/')) {
+    return '/TeachProxy/';
+  }
+  return '/';
+}
+
 const api = axios.create({
   baseURL: `${API_BASE}/admin`,
   headers: {
@@ -25,7 +40,7 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('admin_token');
-      window.location.href = '/login';
+      window.location.href = `${getAppBasePath()}login`;
     }
     return Promise.reject(error);
   }

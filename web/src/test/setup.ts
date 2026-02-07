@@ -16,6 +16,8 @@ Object.defineProperty(window, 'localStorage', {
 Object.defineProperty(window, 'location', {
   value: {
     href: '',
+    pathname: '/',
+    origin: 'http://localhost',
   },
   writable: true,
 })
