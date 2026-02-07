@@ -1,14 +1,21 @@
-import json
 import os
-import re
 from datetime import date
+import json
+import re
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
-def _parse_cors_origins(raw: str) -> list[str]:
-    raw = (raw or "").strip()
+def _parse_cors_origins(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        items = [str(v).strip() for v in raw]
+        return [v for v in items if v]
+
+    raw = str(raw).strip()
     if not raw or raw == "[]":
         return []
     if raw == "*":
@@ -184,18 +191,14 @@ class Settings(BaseSettings):
     max_failover_attempts: int = 3  # Maximum failover attempts for provider failures
 
     # CORS settings
-    cors_origins_raw: str = Field(
-        default="*",
-        validation_alias="CORS_ORIGINS",
-        description=(
-            "Allowed CORS origins. Accepts JSON list (recommended), a comma-separated "
-            "list, a single origin, '*' or an empty value."
-        ),
-    )
+    # Use NoDecode so misconfigured values (e.g. "43.163.94.63") don't crash JSON
+    # parsing at startup.
+    cors_origins: Annotated[list[str], NoDecode] = ["*"]  # Allowed CORS origins
 
-    @property
-    def cors_origins(self) -> list[str]:
-        return _parse_cors_origins(self.cors_origins_raw)
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def decode_cors_origins(cls, v: Any) -> list[str]:
+        return _parse_cors_origins(v)
 
     # LLM Provider settings (Balance Architecture)
     # Teacher Key Pool - DeepSeek Direct (Primary)
