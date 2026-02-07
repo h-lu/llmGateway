@@ -1,0 +1,757 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TeachProxy Student API Key Tester</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --panel: rgba(255, 255, 255, 0.06);
+        --panel-2: rgba(255, 255, 255, 0.09);
+        --border: rgba(255, 255, 255, 0.14);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.66);
+        --accent: #38bdf8;
+        --danger: #fb7185;
+        --ok: #34d399;
+        --shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial,
+          sans-serif;
+        --radius: 16px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--sans);
+        color: var(--text);
+        background: radial-gradient(1200px 800px at 15% 10%, rgba(56, 189, 248, 0.22), transparent 60%),
+          radial-gradient(900px 700px at 80% 30%, rgba(52, 211, 153, 0.16), transparent 55%),
+          radial-gradient(1000px 900px at 50% 120%, rgba(251, 113, 133, 0.14), transparent 60%),
+          var(--bg);
+      }
+
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 28px 16px 48px;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+
+      h1 {
+        font-size: 22px;
+        margin: 0;
+        letter-spacing: 0.2px;
+      }
+
+      .sub {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+        max-width: 72ch;
+      }
+
+      .badge {
+        font-size: 12px;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        padding: 8px 10px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      @media (min-width: 880px) {
+        .grid {
+          grid-template-columns: 420px 1fr;
+          align-items: start;
+        }
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .card .hd {
+        padding: 14px 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: baseline;
+      }
+
+      .card .hd .title {
+        font-size: 13px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .card .bd {
+        padding: 16px;
+      }
+
+      label {
+        display: block;
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 7px;
+      }
+
+      input,
+      textarea,
+      select {
+        width: 100%;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: var(--text);
+        border-radius: 12px;
+        padding: 11px 12px;
+        outline: none;
+        font-size: 14px;
+        transition: border-color 150ms ease, background 150ms ease;
+      }
+
+      textarea {
+        min-height: 148px;
+        resize: vertical;
+        font-family: var(--mono);
+        line-height: 1.35;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: rgba(56, 189, 248, 0.75);
+        background: rgba(0, 0, 0, 0.28);
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .row > * {
+        flex: 1;
+      }
+
+      .row .btn {
+        flex: 0 0 auto;
+      }
+
+      .hint {
+        margin-top: 7px;
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.55);
+        line-height: 1.35;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border-radius: 12px;
+        padding: 10px 12px;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        font-weight: 600;
+        font-size: 13px;
+        transition: transform 70ms ease, background 150ms ease,
+          border-color 150ms ease;
+        user-select: none;
+      }
+
+      .btn:hover {
+        background: rgba(255, 255, 255, 0.10);
+        border-color: rgba(255, 255, 255, 0.20);
+      }
+
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      .btn.primary {
+        background: rgba(56, 189, 248, 0.18);
+        border-color: rgba(56, 189, 248, 0.45);
+      }
+
+      .btn.primary:hover {
+        background: rgba(56, 189, 248, 0.24);
+        border-color: rgba(56, 189, 248, 0.70);
+      }
+
+      .btn.danger {
+        background: rgba(251, 113, 133, 0.14);
+        border-color: rgba(251, 113, 133, 0.35);
+      }
+
+      .btn.danger:hover {
+        background: rgba(251, 113, 133, 0.18);
+        border-color: rgba(251, 113, 133, 0.55);
+      }
+
+      .btn[disabled] {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .mini {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      @media (max-width: 560px) {
+        .mini {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .mini .cell label {
+        margin-bottom: 6px;
+      }
+
+      .toggle {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-top: 12px;
+      }
+
+      .toggle input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+
+      .toggle span {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .status {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+      }
+
+      .status b {
+        color: rgba(255, 255, 255, 0.86);
+        font-weight: 700;
+      }
+
+      .pill {
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 999px;
+        padding: 6px 10px;
+      }
+
+      .pill.ok {
+        border-color: rgba(52, 211, 153, 0.45);
+        background: rgba(52, 211, 153, 0.10);
+      }
+
+      .pill.bad {
+        border-color: rgba(251, 113, 133, 0.45);
+        background: rgba(251, 113, 133, 0.10);
+      }
+
+      pre {
+        margin: 0;
+        padding: 14px 14px;
+        background: rgba(0, 0, 0, 0.26);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        color: rgba(255, 255, 255, 0.86);
+        font-family: var(--mono);
+        font-size: 12.5px;
+        line-height: 1.38;
+        overflow: auto;
+        min-height: 140px;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      @media (min-width: 880px) {
+        .split {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+
+      .footer {
+        margin-top: 16px;
+        color: rgba(255, 255, 255, 0.55);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .footer code {
+        font-family: var(--mono);
+        color: rgba(255, 255, 255, 0.82);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>TeachProxy Student API Key Tester</h1>
+          <p class="sub">
+            Verify a student's API key can call the OpenAI-compatible endpoint
+            <span style="font-family: var(--mono)">POST /v1/chat/completions</span>.
+            This page runs fully in your browser; the API key is only sent in
+            the request header.
+          </p>
+        </div>
+        <div class="badge">
+          Tip: treat student API keys like passwords. If leaked, regenerate.
+        </div>
+      </header>
+
+      <div class="grid">
+        <div class="card">
+          <div class="hd">
+            <div class="title">Credentials</div>
+          </div>
+          <div class="bd">
+            <label for="baseUrl">Server base URL (no /v1)</label>
+            <div class="row">
+              <input id="baseUrl" placeholder="http://example.com" />
+              <button class="btn" id="useOrigin" type="button">Use current</button>
+            </div>
+            <div class="hint">
+              Default: <code id="originText"></code>. If you run this page on the
+              same server, you can keep it as-is.
+            </div>
+
+            <div style="height: 14px"></div>
+
+            <label for="apiKey">Student API key (Bearer)</label>
+            <div class="row">
+              <input id="apiKey" type="password" placeholder="paste here" />
+              <button class="btn" id="toggleKey" type="button">Show</button>
+            </div>
+
+            <div class="toggle">
+              <input id="rememberKey" type="checkbox" />
+              <span>Remember in this browser (localStorage)</span>
+              <button class="btn danger" id="forgetKey" type="button">
+                Forget
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="hd">
+            <div class="title">Request</div>
+            <div class="status" id="statusRow"></div>
+          </div>
+          <div class="bd">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt">
+Explain recursion in one short paragraph, with a simple example.</textarea
+            >
+
+            <div style="height: 12px"></div>
+
+            <div class="mini">
+              <div class="cell">
+                <label for="model">Model</label>
+                <input id="model" value="deepseek-chat" />
+              </div>
+              <div class="cell">
+                <label for="maxTokens">Max tokens</label>
+                <input id="maxTokens" type="number" value="2048" min="1" max="32000" />
+              </div>
+              <div class="cell">
+                <label for="temperature">Temperature</label>
+                <input
+                  id="temperature"
+                  type="number"
+                  value="0.7"
+                  step="0.1"
+                  min="0"
+                  max="2"
+                />
+              </div>
+              <div class="cell">
+                <label for="stream">Stream (SSE)</label>
+                <select id="stream">
+                  <option value="false" selected>off</option>
+                  <option value="true">on</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="height: 14px"></div>
+
+            <div class="row" style="flex-wrap: wrap">
+              <button class="btn primary" id="sendBtn" type="button">Send</button>
+              <button class="btn" id="copyCurl" type="button">Copy curl</button>
+              <button class="btn" id="clearBtn" type="button">Clear output</button>
+            </div>
+
+            <div class="footer">
+              If the key is correct you should get HTTP <code>200</code>. Wrong
+              keys return <code>401</code>. For streaming, you should see chunks
+              appear under "Stream".
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="height: 14px"></div>
+
+      <div class="card">
+        <div class="hd">
+          <div class="title">Response</div>
+        </div>
+        <div class="bd">
+          <div class="split">
+            <div>
+              <label>JSON</label>
+              <pre id="jsonOut"></pre>
+            </div>
+            <div>
+              <label>Stream</label>
+              <pre id="streamOut"></pre>
+            </div>
+          </div>
+
+          <div class="footer">
+            Endpoint: <code>POST /v1/chat/completions</code>. Header:
+            <code>Authorization: Bearer &lt;student_api_key&gt;</code>.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const LS_KEY = "teachproxy_student_api_key";
+
+      const $ = (id) => document.getElementById(id);
+
+      const baseUrl = $("baseUrl");
+      const originText = $("originText");
+      const useOriginBtn = $("useOrigin");
+
+      const apiKey = $("apiKey");
+      const toggleKey = $("toggleKey");
+      const rememberKey = $("rememberKey");
+      const forgetKey = $("forgetKey");
+
+      const prompt = $("prompt");
+      const model = $("model");
+      const maxTokens = $("maxTokens");
+      const temperature = $("temperature");
+      const stream = $("stream");
+
+      const sendBtn = $("sendBtn");
+      const copyCurl = $("copyCurl");
+      const clearBtn = $("clearBtn");
+
+      const jsonOut = $("jsonOut");
+      const streamOut = $("streamOut");
+      const statusRow = $("statusRow");
+
+      function setStatus({ ok, httpStatus, requestId, ms }) {
+        const parts = [];
+
+        if (typeof httpStatus === "number") {
+          parts.push(
+            `<span class="pill ${ok ? "ok" : "bad"}"><b>${httpStatus}</b></span>`
+          );
+        }
+        if (requestId) {
+          parts.push(`<span class="pill">request_id <b>${escapeHtml(requestId)}</b></span>`);
+        }
+        if (typeof ms === "number") {
+          parts.push(`<span class="pill">time <b>${ms.toFixed(0)}ms</b></span>`);
+        }
+
+        statusRow.innerHTML = parts.join("");
+      }
+
+      function clearStatus() {
+        statusRow.innerHTML = "";
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function getBaseUrl() {
+        const raw = (baseUrl.value || "").trim();
+        if (!raw) return window.location.origin;
+        return raw.replace(/\/+$/, "");
+      }
+
+      function getKey() {
+        return (apiKey.value || "").trim();
+      }
+
+      function getBody() {
+        const body = {
+          model: (model.value || "deepseek-chat").trim(),
+          messages: [{ role: "user", content: (prompt.value || "").trim() }],
+          max_tokens: Number(maxTokens.value || 2048),
+          temperature: Number(temperature.value || 0.7),
+          stream: stream.value === "true",
+        };
+        return body;
+      }
+
+      function pretty(obj) {
+        return JSON.stringify(obj, null, 2);
+      }
+
+      function setJson(text) {
+        jsonOut.textContent = text || "";
+      }
+
+      function appendStream(text) {
+        streamOut.textContent += text;
+      }
+
+      function clearOutput() {
+        setJson("");
+        streamOut.textContent = "";
+        clearStatus();
+      }
+
+      function loadRememberedKey() {
+        const saved = window.localStorage.getItem(LS_KEY);
+        if (saved) {
+          apiKey.value = saved;
+          rememberKey.checked = true;
+        }
+      }
+
+      function maybeRememberKey() {
+        if (rememberKey.checked) {
+          window.localStorage.setItem(LS_KEY, getKey());
+        } else {
+          window.localStorage.removeItem(LS_KEY);
+        }
+      }
+
+      function buildCurl() {
+        const url = `${getBaseUrl()}/v1/chat/completions`;
+        const key = getKey();
+        const body = getBody();
+
+        return [
+          `curl -X POST ${shellQuote(url)} \\`,
+          `  -H "Content-Type: application/json" \\`,
+          `  -H "Authorization: Bearer ${key.replaceAll('"', '\\"')}" \\`,
+          `  -d '${JSON.stringify(body).replaceAll("'", "'\\''")}'`,
+        ].join("\n");
+      }
+
+      function shellQuote(s) {
+        // Best-effort for display only.
+        return `'${String(s).replaceAll("'", "'\\''")}'`;
+      }
+
+      async function send() {
+        clearOutput();
+        const key = getKey();
+        const body = getBody();
+
+        if (!key) {
+          setJson("Missing student API key.");
+          setStatus({ ok: false, httpStatus: 0, requestId: "", ms: 0 });
+          return;
+        }
+        if (!body.messages[0].content) {
+          setJson("Prompt is empty.");
+          return;
+        }
+
+        maybeRememberKey();
+        sendBtn.disabled = true;
+
+        const url = `${getBaseUrl()}/v1/chat/completions`;
+        const t0 = performance.now();
+
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${key}`,
+            },
+            body: JSON.stringify(body),
+          });
+
+          const ms = performance.now() - t0;
+          const requestId =
+            res.headers.get("x-request-id") ||
+            res.headers.get("X-Request-ID") ||
+            "";
+
+          setStatus({
+            ok: res.ok,
+            httpStatus: res.status,
+            requestId,
+            ms,
+          });
+
+          const isStream = body.stream === true;
+          if (!isStream) {
+            const text = await res.text();
+            try {
+              setJson(pretty(JSON.parse(text)));
+            } catch (_) {
+              setJson(text);
+            }
+            return;
+          }
+
+          if (!res.body) {
+            setJson("Streaming response has no body.");
+            return;
+          }
+
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let buf = "";
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buf += dec.decode(value, { stream: true });
+            const parts = buf.split("\n\n");
+            buf = parts.pop() || "";
+
+            for (const part of parts) {
+              const line = part.trim();
+              if (!line) continue;
+              if (line === "data: [DONE]") {
+                appendStream("\n[DONE]\n");
+                continue;
+              }
+              if (line.startsWith("data: ")) {
+                const jsonStr = line.slice(6);
+                try {
+                  const data = JSON.parse(jsonStr);
+                  const delta =
+                    data &&
+                    data.choices &&
+                    data.choices[0] &&
+                    data.choices[0].delta &&
+                    data.choices[0].delta.content;
+                  if (typeof delta === "string" && delta.length > 0) {
+                    appendStream(delta);
+                  }
+                } catch (e) {
+                  appendStream("\n[parse_error] ");
+                  appendStream(jsonStr.slice(0, 200));
+                  appendStream("\n");
+                }
+              }
+            }
+          }
+        } catch (e) {
+          setJson(String(e));
+          setStatus({ ok: false, httpStatus: 0, requestId: "", ms: 0 });
+        } finally {
+          sendBtn.disabled = false;
+        }
+      }
+
+      originText.textContent = window.location.origin;
+      baseUrl.value = window.location.origin;
+      loadRememberedKey();
+
+      useOriginBtn.addEventListener("click", () => {
+        baseUrl.value = window.location.origin;
+      });
+
+      toggleKey.addEventListener("click", () => {
+        const isHidden = apiKey.type === "password";
+        apiKey.type = isHidden ? "text" : "password";
+        toggleKey.textContent = isHidden ? "Hide" : "Show";
+      });
+
+      rememberKey.addEventListener("change", () => {
+        maybeRememberKey();
+      });
+
+      forgetKey.addEventListener("click", () => {
+        window.localStorage.removeItem(LS_KEY);
+        rememberKey.checked = false;
+        apiKey.value = "";
+      });
+
+      copyCurl.addEventListener("click", async () => {
+        const txt = buildCurl();
+        try {
+          await navigator.clipboard.writeText(txt);
+          setJson("Copied curl to clipboard.");
+        } catch (_) {
+          setJson(txt);
+        }
+      });
+
+      clearBtn.addEventListener("click", () => {
+        clearOutput();
+      });
+
+      sendBtn.addEventListener("click", () => {
+        send();
+      });
+    </script>
+  </body>
+</html>
+
