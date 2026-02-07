@@ -63,6 +63,21 @@ def verify_api_key(raw_key: str, salt: str, hashed_key: str) -> bool:
     return secrets.compare_digest(computed_hash, hashed_key)
 
 
+def generate_api_key(nbytes: int = 32) -> str:
+    """Generate a new random API key.
+
+    Uses `secrets.token_urlsafe()` to generate a URL-safe token with
+    cryptographically secure randomness.
+
+    Args:
+        nbytes: Number of random bytes to use as input entropy.
+
+    Returns:
+        A URL-safe token string.
+    """
+    return secrets.token_urlsafe(nbytes)
+
+
 # ============================================
 # API Key Encryption (Balance Architecture)
 # ============================================
